@@ -2,6 +2,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -10,6 +11,8 @@
 #include <QFrame>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcess>
+#include <QCoreApplication>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("Doctor AI");
@@ -33,6 +36,21 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(&api_, &ApiClient::requestError, this, [this](const QString &err) {
         appendMessage("System", "Request failed: " + err);
         composer_->setEnabled(true);
+    });
+    connect(&api_, &ApiClient::skillSaved, this, [this](bool ok, const QString &message) {
+        if (ok) QMessageBox::information(this, "Skills", message);
+        else QMessageBox::warning(this, "Skills", "Could not save skill: " + message);
+    });
+    connect(&api_, &ApiClient::modelsResult, this, [this](const QStringList &models, const QString &active) {
+        modelSelector_->clear();
+        modelSelector_->addItems(models);
+        const int index = modelSelector_->findText(active);
+        if (index >= 0) modelSelector_->setCurrentIndex(index);
+        if (models.isEmpty()) modelSelector_->addItem("No local Ollama models found");
+    });
+    connect(&api_, &ApiClient::modelSelected, this, [this](bool ok, const QString &value) {
+        if (ok) status_->setText("● Connected · Model: " + value);
+        else QMessageBox::warning(this, "Model selection", value);
     });
     applyTheme();
 }
@@ -89,10 +107,13 @@ QWidget *MainWindow::makeConnect() {
     connectBtn->setFixedSize(190, 46);
     auto *continueBtn = new QPushButton("Continue to chat");
     continueBtn->setFixedSize(190, 46);
+    auto *scanBtn = new QPushButton("Scan this PC");
+    scanBtn->setFixedSize(150, 46);
     auto *center = new QHBoxLayout; center->addStretch(); center->addWidget(url); center->addStretch();
     layout->addSpacing(24); layout->addLayout(center); layout->addWidget(model, 0, Qt::AlignCenter);
-    auto *buttons = new QHBoxLayout; buttons->addStretch(); buttons->addWidget(connectBtn); buttons->addWidget(continueBtn); buttons->addStretch();
+    auto *buttons = new QHBoxLayout; buttons->addStretch(); buttons->addWidget(connectBtn); buttons->addWidget(continueBtn); buttons->addWidget(scanBtn); buttons->addStretch();
     layout->addLayout(buttons); layout->addStretch();
+    connect(scanBtn, &QPushButton::clicked, this, &MainWindow::scanLocalSystem);
     connect(connectBtn, &QPushButton::clicked, this, [this, url]() { api_.setBaseUrl(url->text()); api_.checkHealth(); });
     connect(continueBtn, &QPushButton::clicked, this, [this, url]() {
         api_.setBaseUrl(url->text()); pages_->setCurrentIndex(2); api_.checkHealth();
@@ -115,8 +136,30 @@ QWidget *MainWindow::makeChat() {
     auto *main = new QWidget; auto *ml = new QVBoxLayout(main); ml->setContentsMargins(28,22,28,22);
     auto *top = new QHBoxLayout; auto *heading = new QLabel("Assistant"); heading->setStyleSheet("font-size:22px;font-weight:700;");
     top->addWidget(heading); top->addStretch();
-    auto *model = new QLabel("gemma4:12b  ·  Local"); model->setStyleSheet("color:#54b8ff;padding:8px 12px;background:#172b42;border-radius:8px;");
-    top->addWidget(model); ml->addLayout(top);
+    modelSelector_ = new QComboBox;
+    modelSelector_->setMinimumWidth(190);
+    modelSelector_->addItem("Loading local models...");
+    auto *refreshModels = new QPushButton("↻");
+    refreshModels->setToolTip("Refresh models installed in Ollama");
+    moduleSelector_ = new QComboBox;
+    moduleSelector_->addItem("General assistant", "general");
+    moduleSelector_->addItem("Medical", "clinical");
+    moduleSelector_->addItem("Image studio", "image");
+    moduleSelector_->addItem("Video studio", "video");
+    moduleSelector_->addItem("Audio studio", "audio");
+    top->addWidget(new QLabel("Module"));
+    top->addWidget(moduleSelector_);
+    top->addWidget(new QLabel("Local model"));
+    top->addWidget(modelSelector_);
+    top->addWidget(refreshModels);
+    ml->addLayout(top);
+    connect(refreshModels, &QPushButton::clicked, this, [this]() { api_.refreshModels(); });
+    connect(modelSelector_, &QComboBox::activated, this, [this](int index) {
+        const QString selected = modelSelector_->itemText(index);
+        if (!selected.isEmpty() && !selected.startsWith("No local") && !selected.startsWith("Loading"))
+            api_.selectModel(selected);
+    });
+    api_.refreshModels();
     chatView_ = new QTextEdit; chatView_->setReadOnly(true); chatView_->setPlaceholderText("Your conversation will appear here…"); ml->addWidget(chatView_,1);
     auto *attachRow = new QHBoxLayout;
     auto *attach = new QPushButton("＋ Attach images");
@@ -135,7 +178,35 @@ QWidget *MainWindow::makeChat() {
     connect(composer_, &QLineEdit::returnPressed, this, &MainWindow::send);
     connect(newChat, &QPushButton::clicked, this, [this]() { chatView_->clear(); attachments_.clear(); videos_.clear(); });
     connect(skills, &QPushButton::clicked, this, [this]() {
-        QMessageBox::information(this, "Skills", "Skills are managed as Markdown files in the backend/skills folder.\nAdd a .md file and restart the Java service. A full in-app skill editor is planned for the next iteration.");
+        QDialog dialog(this);
+        dialog.setWindowTitle("Create a Doctor AI skill");
+        dialog.setMinimumSize(560, 440);
+        auto *form = new QFormLayout(&dialog);
+        auto *module = new QComboBox;
+        module->addItem("General", "general");
+        module->addItem("Medical", "clinical");
+        module->addItem("Image", "image");
+        module->addItem("Video", "video");
+        module->addItem("Audio", "audio");
+        auto *name = new QLineEdit("module-guidance");
+        name->setPlaceholderText("e.g. pediatric-emergency");
+        auto *content = new QTextEdit;
+        content->setPlaceholderText("Write the instructions for this skill in Markdown...");
+        form->addRow("Module", module);
+        form->addRow("Skill name", name);
+        form->addRow("Instructions", content);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+        form->addRow(buttons);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+            if (name->text().trimmed().isEmpty() || content->toPlainText().trimmed().isEmpty()) {
+                QMessageBox::warning(&dialog, "Missing information", "Enter both a skill name and its instructions.");
+                return;
+            }
+            api_.saveSkill(module->currentData().toString(), name->text().trimmed(), content->toPlainText());
+            dialog.accept();
+        });
+        dialog.exec();
     });
     return w;
 }
@@ -155,12 +226,73 @@ void MainWindow::chooseFiles() {
 }
 void MainWindow::send() {
     const QString msg = composer_->text().trimmed();
-    if (msg.isEmpty() && attachments_.isEmpty()) return;
-    appendMessage("You", msg.isEmpty() ? "[Image attachment]" : msg);
+    if (msg.isEmpty() && attachments_.isEmpty() && videos_.isEmpty()) return;
+    appendMessage("You", msg.isEmpty() ? "[Media attachment]" : msg);
     composer_->clear(); composer_->setEnabled(false);
-    api_.sendMessage(msg, attachments_);
+    api_.sendMessage(msg, attachments_, videos_, moduleSelector_->currentData().toString());
     attachments_.clear();
+    videos_.clear();
 }
+
+void MainWindow::scanLocalSystem() {
+    QString script = QString::fromUtf8(R"PS(
+$ErrorActionPreference = 'Continue'
+Write-Output '=== Doctor AI local system scan ==='
+Write-Output ('Computer: ' + $env:COMPUTERNAME)
+Write-Output ('Windows: ' + (Get-CimInstance Win32_OperatingSystem).Caption)
+Write-Output ''
+Write-Output '--- Java ---'
+$java = Join-Path $PSScriptRoot 'runtime\bin\java.exe'
+if (Test-Path $java) { Write-Output ('Bundled Java: ' + $java) }
+elseif (Get-Command java -ErrorAction SilentlyContinue) { java -version 2>&1 }
+else { Write-Output 'Java not found in PATH (installer should provide bundled Java).' }
+Write-Output ''
+Write-Output '--- Ollama ---'
+$cmd = Get-Command ollama -ErrorAction SilentlyContinue
+if ($cmd) { Write-Output ('Ollama command: ' + $cmd.Source) }
+else { Write-Output 'Ollama command not found in PATH.' }
+$paths = @("$env:LOCALAPPDATA\Programs\Ollama\ollama.exe", "$env:ProgramFiles\Ollama\ollama.exe")
+foreach ($p in $paths) { if (Test-Path $p) { Write-Output ('Ollama file: ' + $p) } }
+try {
+  $tags = Invoke-RestMethod 'http://127.0.0.1:11434/api/tags' -TimeoutSec 3
+  Write-Output 'Ollama API: RUNNING'
+  if ($tags.models) {
+    Write-Output 'Installed models:'
+    $tags.models | ForEach-Object { Write-Output (' - ' + $_.name) }
+    $gemma = $tags.models | Where-Object { $_.name -match '(?i)^gemma' } | Select-Object -First 1
+    if ($gemma) { Write-Output ('Selected Gemma model: ' + $gemma.name) }
+    else { Write-Output 'No Gemma model found in Ollama.' }
+  }
+} catch { Write-Output 'Ollama API: NOT RESPONDING on 127.0.0.1:11434' }
+Write-Output ''
+Write-Output '--- Local ports ---'
+foreach ($port in @(8787,11434,8788)) {
+  $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+  Write-Output ("Port " + $port + ": " + $(if ($listener) { 'LISTENING' } else { 'not listening' }))
+}
+)PS");
+    QString appDir = QCoreApplication::applicationDirPath();
+    appDir.replace("'", "''");
+    script.replace("__DOCTORAI_APP_DIR__", appDir);
+    QProcess process;
+    process.start("powershell.exe", QStringList() << "-NoProfile" << "-ExecutionPolicy" << "Bypass" << "-Command" << script);
+    if (!process.waitForStarted(3000) || !process.waitForFinished(20000)) {
+        QMessageBox::warning(this, "Local system scan", "Could not complete the local scan. Check that Windows PowerShell is available.");
+        process.kill();
+        return;
+    }
+    QString output = QString::fromLocal8Bit(process.readAllStandardOutput());
+    const QString errors = QString::fromLocal8Bit(process.readAllStandardError());
+    if (output.trimmed().isEmpty()) output = errors.isEmpty() ? "No diagnostic output was returned." : errors;
+    QMessageBox result(this);
+    result.setWindowTitle("Doctor AI - Local system scan");
+    result.setIcon(QMessageBox::Information);
+    result.setText("Scan completed on this PC. No files are uploaded.");
+    result.setDetailedText(output + (errors.isEmpty() ? QString() : "\nPowerShell details:\n" + errors));
+    result.setStandardButtons(QMessageBox::Ok);
+    result.exec();
+}
+
 void MainWindow::applyTheme() {
     setStyleSheet(R"(
       QMainWindow,QWidget { background:#0b1422;color:#edf4ff;font-family:"Segoe UI";font-size:13px; }

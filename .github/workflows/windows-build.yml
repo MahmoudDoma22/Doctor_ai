@@ -1,0 +1,109 @@
+name: Build Doctor AI for Windows
+on:
+  push:
+    branches: [main, "fix/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: doctor-ai-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows-build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+      - name: Configure desktop
+        shell: pwsh
+        run: cmake -S . -B build -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DCMAKE_BUILD_TYPE=Release
+      - name: Build desktop
+        run: cmake --build build --config Release
+      - name: Deploy Qt runtime
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Filter DoctorAI.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "DoctorAI.exe was not produced" }
+          windeployqt --release $exe.FullName
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Validate Python media service
+        run: python -m compileall -q media
+      - name: Build and test Java backend
+        run: mvn -f backend/pom.xml test package
+      - name: Verify and package outputs
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Filter DoctorAI.exe -Recurse | Select-Object -First 1
+          $jar = Get-ChildItem -Path backend/target -Filter *.jar | Where-Object { $_.Name -notlike "original-*" } | Select-Object -First 1
+          if (-not $exe) { throw "Missing DoctorAI.exe" }
+          if (-not $jar) { throw "Missing executable backend JAR" }
+          New-Item -ItemType Directory -Force -Path package/desktop, package/backend, package/media, package/skills | Out-Null
+          Copy-Item "$($exe.DirectoryName)/*" package/desktop -Recurse
+          Copy-Item $jar.FullName package/backend/doctor-ai-backend.jar
+          Copy-Item media/app.py,media/requirements.txt package/media/
+          Copy-Item skills/* package/skills/ -Recurse -Force
+          # Bundle the Python runtime and the media service dependencies so video frame extraction
+          # works after installation without requiring a system Python installation.
+          $pythonRoot = python -c "import sys; print(sys.prefix)"
+          New-Item -ItemType Directory -Force -Path package/python, package/media/site-packages | Out-Null
+          Copy-Item "$pythonRoot/*" package/python/ -Recurse -Force
+          python -m pip install --disable-pip-version-check --no-warn-script-location --target package/media/site-packages -r media/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Could not package Python media dependencies" }
+          $jlink = Join-Path $env:JAVA_HOME "bin\jlink.exe"
+          & $jlink --add-modules ALL-MODULE-PATH --strip-debug --no-man-pages --no-header-files --compress=2 --output package/runtime
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path package/runtime/bin/java.exe)) { throw "Bundled Java runtime creation failed" }
+          Compress-Archive -Path package/* -DestinationPath DoctorAI-Windows-Portable.zip -Force
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $isccCandidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "${env:ChocolateyInstall}\lib\innosetup\tools\ISCC.exe",
+            "${env:ChocolateyInstall}\bin\ISCC.exe"
+          )
+          $iscc = $isccCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $iscc) {
+            $roots = @("${env:ProgramFiles(x86)}", "$env:ProgramFiles", "${env:ChocolateyInstall}\lib\innosetup")
+            foreach ($root in $roots) {
+              if ($root -and (Test-Path $root)) {
+                $found = Get-ChildItem -Path $root -Filter ISCC.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($found) { $iscc = $found.FullName; break }
+              }
+            }
+          }
+          if (-not $iscc) {
+            $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($isccCommand) { $iscc = $isccCommand.Source }
+          }
+          if (-not $iscc) { throw "Inno Setup compiler not found in standard installation paths" }
+          Write-Host "Using Inno Setup compiler: $iscc"
+          & $iscc installer/DoctorAI.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
+          if (-not (Test-Path installer-output/DoctorAI-Setup.exe)) { throw "Installer EXE missing" }
+      - name: Upload Windows package and installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoctorAI-Windows-Release
+          path: |
+            DoctorAI-Windows-Portable.zip
+            installer-output/DoctorAI-Setup.exe
+          if-no-files-found: error

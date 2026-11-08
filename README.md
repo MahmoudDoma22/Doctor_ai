@@ -1,35 +1,46 @@
-# Doctor AI 2 — Rust-first desktop
+# Doctor AI — Rust Desktop
 
-Doctor AI is being rebuilt as a native Rust Windows desktop application.
+Doctor AI is a native Rust desktop application for running supported AI models locally on Windows.
 
-## Architecture
-- Native desktop UI: Rust + egui/eframe.
-- Local inference runtime: mistral.rs (Rust).
-- Local model storage: %USERPROFILE%\.doctor-ai\models.
-- Model downloads: streamed HTTP with partial-file retention and HTTP Range resume when supported.
-- No Java, Qt, Python, PowerShell installer scripts, or Ollama dependency in the new application path.
+## Runtime architecture
 
-## User experience
-- First-run hardware summary and model recommendation.
-- Detects whether a selected model already exists.
-- Model library with source links, download progress, and cancellation.
-- Chat screen with streaming token display and a stop control beside Send.
-- Notifications/status area and free image/video tool links.
-- Inno Setup installer with a selectable installation directory and branded executable/installer icon.
+- **Desktop application:** Rust + egui/eframe.
+- **Inference runtime:** mistral.rs, built from Rust source and shipped with the installer.
+- **Runtime communication:** Doctor AI starts and supervises the local inference process, probes its OpenAI-compatible API on a loopback-only ephemeral port, and streams responses into the native UI. No third-party model manager is required.
+- **Model storage:** `%USERPROFILE%\\.doctor-ai\\models`.
+- **Downloads:** streamed to a temporary `.part` file, resumed with HTTP Range when the source supports it, validated against the server's byte range/size, then atomically renamed.
+- **Installer:** Inno Setup with a selectable destination folder. The installed runtime is native executables; no Java, Qt, Python, or PowerShell launcher is shipped or run on the user's PC.
 
-## Model selection
-- Gemma 4 E2B Q4_K_M: lighter local chat, 8 GB RAM class.
-- Gemma 4 E4B Q4_K_M: higher memory requirement, 16 GB RAM class.
-Model repository/file availability and exact memory needs must be verified on the target device. The model pages are the authoritative source for weights and licenses.
+## First run
 
-## Free creative tools
-ComfyUI, Krita, Blender, Shotcut, Kdenlive, and Wan are linked from their official project pages. They are optional external applications, not bundled.
+1. Open the welcome page and review detected RAM, available memory, CPU, and free disk space.
+2. Doctor AI recommends a model tier based on total and currently available memory.
+3. The model page checks the app's model folder and known Hugging Face cache/download locations for the exact supported GGUF files.
+4. Download a missing model from its source link; interrupted downloads retain partial data for resumption.
+5. Start the local engine from the Chat page. The Send control is enabled only after the local API readiness probe succeeds.
 
-## Build
+## Included model catalogue
+
+- **Gemma 4 E2B Q4_K_M:** lower-memory option for supported local chat.
+- **Gemma 4 E4B Q4_K_M:** larger option for machines with more available RAM.
+
+Model sizes and memory requirements vary by runtime, context length, and other applications. Confirm the model repository's current files, licence, and compatibility before downloading. The current release targets CPU inference on Windows; do not assume GPU acceleration.
+
+## Local software discovery
+
+The application checks known local model folders and common executable locations/PATH for selected tools, including ComfyUI, Blender, Krita, Whisper.cpp, Piper, and FFmpeg. Discovery is best-effort and does not claim a tool is installed when it cannot be found. The creative tools page also links to official project sites. These external programs and their model weights are optional and are not bundled in this installer.
+
+## Build and test
+
 Windows x64, Rust stable/MSVC, and Inno Setup 6:
+
 ```powershell
 cargo build --manifest-path rust-app/Cargo.toml --release
+cargo test --manifest-path rust-app/Cargo.toml
 ```
 
-## Important
-This is a rebuild foundation. GPU acceleration, robust model metadata discovery, complete conversation history, health/readiness checks, structured logs, and automated UI/inference tests remain gated on successful CI and runtime verification. Never treat an untested model download or engine startup as production-ready.
+The GitHub Actions workflow builds the native app and inference runtime, runs Rust tests, embeds the branded executable icon, compiles the selectable Windows installer, and uploads the installer artifact.
+
+## Verification boundary
+
+A successful CI build proves that the code and installer compile and that included automated tests pass. It does not replace runtime validation on a physical Windows PC, tests with each downloaded model, performance benchmarks, or end-to-end tests for optional external tools. Those checks must be reported separately.

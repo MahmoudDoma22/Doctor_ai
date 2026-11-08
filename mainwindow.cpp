@@ -41,6 +41,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         if (ok) QMessageBox::information(this, "Skills", message);
         else QMessageBox::warning(this, "Skills", "Could not save skill: " + message);
     });
+    connect(&api_, &ApiClient::modelsResult, this, [this](const QStringList &models, const QString &active) {
+        modelSelector_->clear();
+        modelSelector_->addItems(models);
+        const int index = modelSelector_->findText(active);
+        if (index >= 0) modelSelector_->setCurrentIndex(index);
+        if (models.isEmpty()) modelSelector_->addItem("No local Ollama models found");
+    });
+    connect(&api_, &ApiClient::modelSelected, this, [this](bool ok, const QString &value) {
+        if (ok) status_->setText("● Connected · Model: " + value);
+        else QMessageBox::warning(this, "Model selection", value);
+    });
     applyTheme();
 }
 
@@ -125,8 +136,30 @@ QWidget *MainWindow::makeChat() {
     auto *main = new QWidget; auto *ml = new QVBoxLayout(main); ml->setContentsMargins(28,22,28,22);
     auto *top = new QHBoxLayout; auto *heading = new QLabel("Assistant"); heading->setStyleSheet("font-size:22px;font-weight:700;");
     top->addWidget(heading); top->addStretch();
-    auto *model = new QLabel("gemma4:12b  ·  Local"); model->setStyleSheet("color:#54b8ff;padding:8px 12px;background:#172b42;border-radius:8px;");
-    top->addWidget(model); ml->addLayout(top);
+    modelSelector_ = new QComboBox;
+    modelSelector_->setMinimumWidth(190);
+    modelSelector_->addItem("Loading local models...");
+    auto *refreshModels = new QPushButton("↻");
+    refreshModels->setToolTip("Refresh models installed in Ollama");
+    moduleSelector_ = new QComboBox;
+    moduleSelector_->addItem("General assistant", "general");
+    moduleSelector_->addItem("Medical", "clinical");
+    moduleSelector_->addItem("Image studio", "image");
+    moduleSelector_->addItem("Video studio", "video");
+    moduleSelector_->addItem("Audio studio", "audio");
+    top->addWidget(new QLabel("Module"));
+    top->addWidget(moduleSelector_);
+    top->addWidget(new QLabel("Local model"));
+    top->addWidget(modelSelector_);
+    top->addWidget(refreshModels);
+    ml->addLayout(top);
+    connect(refreshModels, &QPushButton::clicked, this, [this]() { api_.refreshModels(); });
+    connect(modelSelector_, &QComboBox::activated, this, [this](int index) {
+        const QString selected = modelSelector_->itemText(index);
+        if (!selected.isEmpty() && !selected.startsWith("No local") && !selected.startsWith("Loading"))
+            api_.selectModel(selected);
+    });
+    api_.refreshModels();
     chatView_ = new QTextEdit; chatView_->setReadOnly(true); chatView_->setPlaceholderText("Your conversation will appear here…"); ml->addWidget(chatView_,1);
     auto *attachRow = new QHBoxLayout;
     auto *attach = new QPushButton("＋ Attach images");
@@ -149,10 +182,17 @@ QWidget *MainWindow::makeChat() {
         dialog.setWindowTitle("Create a Doctor AI skill");
         dialog.setMinimumSize(560, 440);
         auto *form = new QFormLayout(&dialog);
-        auto *name = new QLineEdit("clinical-guidance");
+        auto *module = new QComboBox;
+        module->addItem("General", "general");
+        module->addItem("Medical", "clinical");
+        module->addItem("Image", "image");
+        module->addItem("Video", "video");
+        module->addItem("Audio", "audio");
+        auto *name = new QLineEdit("module-guidance");
         name->setPlaceholderText("e.g. pediatric-emergency");
         auto *content = new QTextEdit;
         content->setPlaceholderText("Write the instructions for this skill in Markdown...");
+        form->addRow("Module", module);
         form->addRow("Skill name", name);
         form->addRow("Instructions", content);
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
@@ -163,7 +203,7 @@ QWidget *MainWindow::makeChat() {
                 QMessageBox::warning(&dialog, "Missing information", "Enter both a skill name and its instructions.");
                 return;
             }
-            api_.saveSkill(name->text().trimmed(), content->toPlainText());
+            api_.saveSkill(module->currentData().toString(), name->text().trimmed(), content->toPlainText());
             dialog.accept();
         });
         dialog.exec();
@@ -189,7 +229,7 @@ void MainWindow::send() {
     if (msg.isEmpty() && attachments_.isEmpty() && videos_.isEmpty()) return;
     appendMessage("You", msg.isEmpty() ? "[Media attachment]" : msg);
     composer_->clear(); composer_->setEnabled(false);
-    api_.sendMessage(msg, attachments_, videos_);
+    api_.sendMessage(msg, attachments_, videos_, moduleSelector_->currentData().toString());
     attachments_.clear();
     videos_.clear();
 }

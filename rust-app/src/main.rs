@@ -12,7 +12,14 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native("Doctor AI", options, Box::new(|cc| {
-        cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        let mut visuals = egui::Visuals::dark();
+        visuals.panel_fill = egui::Color32::from_rgb(12, 22, 38);
+        visuals.window_fill = egui::Color32::from_rgb(15, 28, 46);
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(25, 43, 62);
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(34, 76, 91);
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(25, 145, 135);
+        visuals.selection.bg_fill = egui::Color32::from_rgb(25, 145, 135);
+        cc.egui_ctx.set_visuals(visuals);
         Ok(Box::new(app::DoctorApp::new()))
     }))
 }

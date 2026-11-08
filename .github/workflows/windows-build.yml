@@ -18,6 +18,19 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+          components: rustfmt
+      - name: Verify Rust-only source tree
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $legacy = @("backend", "desktop", "CMakeLists.txt", "installer/Install-Model.ps1", "installer/Start-DoctorAI.ps1", "installer/Start-DoctorAI.vbs")
+          foreach ($path in $legacy) { if (Test-Path $path) { throw "Legacy runtime component still exists: $path" } }
+          $hits = Get-ChildItem -Recurse -File -Exclude "*.ico" | Select-String -Pattern "ollama" -SimpleMatch -CaseSensitive:$false
+          if ($hits) { throw "Forbidden legacy model-manager reference found: $($hits[0].Path)" }
+      - name: Format and parse Rust sources
+        run: |
+          cargo fmt --manifest-path rust-app/Cargo.toml
+          cargo fmt --manifest-path rust-app/Cargo.toml -- --check
       - name: Enable long paths for Rust dependency tree
         shell: pwsh
         run: |
@@ -48,6 +61,7 @@ jobs:
           Copy-Item $icon.FullName package/DoctorAI.ico
           if ((Get-Item package/DoctorAI.exe).Length -lt 1MB) { throw "DoctorAI.exe is unexpectedly small" }
           if ((Get-Item package/runtime/mistralrs/mistralrs.exe).Length -lt 1MB) { throw "mistralrs.exe is unexpectedly small" }
+          if ((Get-Item package/DoctorAI.ico).Length -lt 1KB) { throw "DoctorAI.ico is unexpectedly small" }
       - name: Install Inno Setup
         shell: pwsh
         run: |
@@ -60,6 +74,7 @@ jobs:
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/DoctorAI.iss
           if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
           if (-not (Test-Path installer-output/DoctorAI-Setup.exe)) { throw "Installer output missing" }
+          if ((Get-Item installer-output/DoctorAI-Setup.exe).Length -lt 10MB) { throw "Installer output is unexpectedly small" }
       - name: Upload Windows installer
         uses: actions/upload-artifact@v6
         with:

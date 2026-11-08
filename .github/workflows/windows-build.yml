@@ -93,18 +93,19 @@ jobs:
           $ErrorActionPreference = "Stop"
           $testDir = Join-Path $env:RUNNER_TEMP "DoctorAI-Install-Test"
           $installLog = Join-Path $env:RUNNER_TEMP "DoctorAI-Install.log"
-          & installer-output/DoctorAI-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/LOG=$installLog" "/DIR=$testDir"
-          $installExit = $LASTEXITCODE
-          if ($installExit -ne 0) {
+          $setup = (Resolve-Path "installer-output/DoctorAI-Setup.exe").Path
+          $install = Start-Process -FilePath $setup -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$installLog", "/DIR=$testDir") -PassThru -Wait
+          if ($install.ExitCode -ne 0) {
             if (Test-Path $installLog) { Get-Content $installLog -Tail 80 }
-            throw "Silent installer smoke test failed with exit code $installExit"
+            throw "Silent installer smoke test failed with exit code $($install.ExitCode)"
           }
           if (-not (Test-Path (Join-Path $testDir "DoctorAI.exe"))) { throw "Installed desktop executable is missing" }
           if (-not (Test-Path (Join-Path $testDir "runtime/mistralrs/mistralrs.exe"))) { throw "Installed Rust inference engine is missing" }
           $uninstaller = Join-Path $testDir "unins000.exe"
           if (-not (Test-Path $uninstaller)) { throw "Uninstaller was not created" }
-          & $uninstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-          if ($LASTEXITCODE -ne 0) { throw "Uninstaller smoke test failed" }
+          $remove = Start-Process -FilePath $uninstaller -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -PassThru -Wait
+          if ($remove.ExitCode -ne 0) { throw "Uninstaller smoke test failed with exit code $($remove.ExitCode)" }
+          if (Test-Path (Join-Path $testDir "DoctorAI.exe")) { throw "Uninstaller left DoctorAI.exe behind" }
       - name: Upload Windows installer
         uses: actions/upload-artifact@v6
         with:

@@ -15,6 +15,7 @@ UninstallDisplayIcon={app}\{#AppExeName}
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 WizardStyle=modern
+DisableWelcomePage=no
 Compression=lzma2
 SolidCompression=yes
 DisableProgramGroupPage=yes
@@ -29,7 +30,9 @@ Name: "desktopicon"; Description: "إنشاء اختصار على سطح الم�
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "تشغيل Doctor AI"; Flags: postinstall nowait skipifsilent
 [Messages]
-WelcomeLabel2=سيتم تثبيت Doctor AI بواجهة Rust أصلية. يمكنك تغيير مجلد التثبيت في الخطوة التالية.
+WelcomeLabel1=مرحباً بك في Doctor AI
+WelcomeLabel2=سيتم تثبيت تطبيق Rust محلي. يمكنك اختيار مكان التثبيت، ثم فحص جهازك واختيار الموديل المناسب من داخل التطبيق.
+SelectDirLabel3=اختر مجلد التثبيت. سيعمل البرنامج ومحرك الذكاء الاصطناعي محلياً من هذا المجلد.
 SelectDirDesc=اختر مكان تثبيت البرنامج. لا يتم استخدام PowerShell أثناء التثبيت.
 
 [Code]

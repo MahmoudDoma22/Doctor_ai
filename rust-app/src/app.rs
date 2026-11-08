@@ -43,8 +43,16 @@ impl DoctorApp{
     let mut response=client.post("http://127.0.0.1:8080/v1/chat/completions").json(&body).send().await.map_err(|e|format!("الاتصال بالمحرك: {e}"))?;
     if !response.status().is_success(){return Err(format!("المحرك رجع HTTP {}",response.status()));}
     let mut buffer=String::new();
-    while let Some(chunk)=response.chunk().await.map_err(|e|format!("استقبال البيانات: {e}"))?{
-     if stop.load(Ordering::Relaxed){break;}buffer.push_str(&String::from_utf8_lossy(&chunk));
+    loop {
+     let next = tokio::select! {
+      _ = tokio::time::sleep(Duration::from_millis(100)) => {
+       if stop.load(Ordering::Relaxed) { break; }
+       continue;
+      }
+      chunk = response.chunk() => chunk.map_err(|e|format!("استقبال البيانات: {e}"))?,
+     };
+     let Some(chunk)=next else { break; };
+     buffer.push_str(&String::from_utf8_lossy(&chunk));
      while let Some(pos)=buffer.find('\n'){let line=buffer[..pos].trim().to_string();buffer.drain(..=pos);
       if let Some(data)=line.strip_prefix("data: "){if data=="[DONE]"{break;}if let Ok(v)=serde_json::from_str::<serde_json::Value>(data){if let Some(s)=v["choices"][0]["delta"]["content"].as_str(){let _=tx.send(s.to_string());}}}
      }

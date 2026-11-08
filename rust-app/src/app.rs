@@ -53,8 +53,9 @@ impl DoctorApp{
   match Command::new(exe).args(["serve","-f"]).arg(path).args(["--host","127.0.0.1","--port",&self.engine_port.to_string(),"--no-ui"]).stdout(stdout).stderr(Stdio::from(log)).spawn(){Ok(c)=>{self.engine=Some(c);self.engine_ready=false;self.engine_started_at=Some(Instant::now());self.status=format!("جاري تحميل الموديل والتحقق من جاهزية المحرك على المنفذ {}؛ السجل: {}",self.engine_port,log_path.display());},Err(e)=>self.status=format!("فشل تشغيل المحرك؛ السجل: {} — {e}",log_path.display())}
  }
  fn send_prompt(&mut self){
-  if self.prompt.trim().is_empty()||self.busy{return;}let prompt=std::mem::take(&mut self.prompt);
+  if self.prompt.trim().is_empty()||self.busy{return;}
   if !self.engine_ready{self.status="المحرك لم يصبح جاهزاً بعد؛ انتظر اكتمال تحميل الموديل".into();return;}
+  let prompt=std::mem::take(&mut self.prompt);
   self.answer.clear();self.busy=true;self.stop.store(false,Ordering::Relaxed);self.status="جاري الاتصال بالموديل المحلي...".into();
   let stop=self.stop.clone();let http=self.http.clone();let port=self.engine_port;let(tx,rx)=std::sync::mpsc::channel();let tx_error=tx.clone();self.chat_rx=Some(rx);
   std::thread::spawn(move||{

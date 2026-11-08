@@ -2,6 +2,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -135,7 +136,7 @@ QWidget *MainWindow::makeChat() {
     connect(composer_, &QLineEdit::returnPressed, this, &MainWindow::send);
     connect(newChat, &QPushButton::clicked, this, [this]() { chatView_->clear(); attachments_.clear(); videos_.clear(); });
     connect(skills, &QPushButton::clicked, this, [this]() {
-        QMessageBox::information(this, "Skills", "Skills are managed as Markdown files in the backend/skills folder.\nAdd a .md file and restart the Java service. A full in-app skill editor is planned for the next iteration.");
+        QMessageBox::information(this, "Skills", "Skills are managed as Markdown files in the skills folder.\nAdd a .md file and restart the Java service. A full in-app skill editor is planned for the next iteration.");
     });
     return w;
 }

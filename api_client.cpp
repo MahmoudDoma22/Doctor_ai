@@ -4,7 +4,6 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QFile>
-#include <QFileInfo>
 #include <QUrl>
 
 ApiClient::ApiClient(QObject *parent) : QObject(parent) {}
@@ -17,7 +16,7 @@ void ApiClient::checkHealth() {
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto body = reply->readAll();
         const bool ok = reply->error() == QNetworkReply::NoError;
-        QString message = ok ? QString::fromUtf8(body) : reply->errorString();
+        const QString message = ok ? QString::fromUtf8(body) : reply->errorString();
         emit healthResult(ok, message);
         reply->deleteLater();
     });
@@ -36,8 +35,7 @@ void ApiClient::sendMessage(const QString &message, const QStringList &imagePath
     QJsonArray videos;
     for (const QString &path : videoPaths) {
         QFile file(path);
-        if (!file.open(QIODevice::ReadOnly)) continue;
-        if (file.size() > 100LL * 1024 * 1024) continue; // 100 MB safety limit
+        if (!file.open(QIODevice::ReadOnly) || file.size() > 100LL * 1024 * 1024) continue;
         videos.append(QString::fromLatin1(file.readAll().toBase64()));
     }
     payload["videos"] = videos;
@@ -57,7 +55,6 @@ void ApiClient::sendMessage(const QString &message, const QStringList &imagePath
     });
 }
 
-
 void ApiClient::saveSkill(const QString &name, const QString &content) {
     QJsonObject payload;
     payload["name"] = name;
@@ -67,8 +64,7 @@ void ApiClient::saveSkill(const QString &name, const QString &content) {
     auto *reply = network_.post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const bool ok = reply->error() == QNetworkReply::NoError;
-        const QString message = ok ? "Skill saved." : reply->errorString();
-        emit skillSaved(ok, message);
+        emit skillSaved(ok, ok ? "Skill saved." : reply->errorString());
         reply->deleteLater();
     });
 }

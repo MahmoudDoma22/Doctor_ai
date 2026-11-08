@@ -57,7 +57,8 @@ if (-not $javaExe) {
   exit 1
 }
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-$ready = [bool](Test-Http "$baseUrl/api/health")
+$initialHealth = Test-Http "$baseUrl/api/health"
+$ready = ($initialHealth -and $initialHealth.ok -eq $true)
 if (-not $ready) {
   try {
     $javaArgs = '-jar "' + $jar + '"'

@@ -18,7 +18,7 @@ pub struct DoctorApp{
 impl DoctorApp{
  pub fn new()->Self{
   let(tx,rx)=mpsc::unbounded_channel();let ram=catalog::detect_ram_gb();let available_ram=catalog::detect_available_ram_gb();let free_disk=catalog::detect_free_disk_gb();let cpu=catalog::detect_cpu();
-  Self{page:Page::Welcome,ram,available_ram,free_disk,cpu,selected:catalog::recommended(ram,available_ram),notices:vec!["مرحباً بك في Doctor AI".into()],download_rx:rx,download_tx:tx,cancel:Arc::new(AtomicBool::new(false)),downloading:false,download_progress:0.0,download_label:String::new(),prompt:String::new(),answer:String::new(),busy:false,stop:Arc::new(AtomicBool::new(false)),engine:None,status:"جاهز".into(),chat_rx:None,download_speed:"".into(),last_progress:None,http:reqwest::Client::builder().pool_max_idle_per_host(4).connect_timeout(Duration::from_secs(5)).build().unwrap_or_default(),engine_port:0,engine_ready:false,engine_started_at:None,installed_models:Vec::new(),installed_tools:Vec::new(),scan_rx:None,scan_complete:false};
+  let mut app=Self{page:Page::Welcome,ram,available_ram,free_disk,cpu,selected:catalog::recommended(ram,available_ram),notices:vec!["مرحباً بك في Doctor AI".into()],download_rx:rx,download_tx:tx,cancel:Arc::new(AtomicBool::new(false)),downloading:false,download_progress:0.0,download_label:String::new(),prompt:String::new(),answer:String::new(),busy:false,stop:Arc::new(AtomicBool::new(false)),engine:None,status:"جاهز".into(),chat_rx:None,download_speed:"".into(),last_progress:None,http:reqwest::Client::builder().pool_max_idle_per_host(4).connect_timeout(Duration::from_secs(5)).build().unwrap_or_default(),engine_port:0,engine_ready:false,engine_started_at:None,installed_models:Vec::new(),installed_tools:Vec::new(),scan_rx:None,scan_complete:false};
   app.begin_scan();
   app
  }
@@ -83,7 +83,8 @@ impl DoctorApp{
   });
  }
  fn poll(&mut self){
-  if let Some(rx)=&self.scan_rx{if let Ok((models,tools))=rx.try_recv(){self.installed_models=models;self.installed_tools=tools;self.scan_complete=true;self.scan_rx=None;self.status="اكتمل فحص الموديلات والأدوات المحلية".into();}}
+  let scan_result=self.scan_rx.as_ref().and_then(|rx|rx.try_recv().ok());
+  if let Some((models,tools))=scan_result{self.installed_models=models;self.installed_tools=tools;self.scan_complete=true;self.scan_rx=None;self.status="اكتمل فحص الموديلات والأدوات المحلية".into();}
   while let Ok(ev)=self.download_rx.try_recv(){match ev{
    DownloadEvent::Progress(n,total)=>{let now=std::time::Instant::now();if let Some((old,at))=self.last_progress{let secs=now.duration_since(at).as_secs_f64().max(0.001);self.download_speed=format!("{}/s",bytes(((n.saturating_sub(old))as f64/secs)as u64));}self.last_progress=Some((n,now));self.download_progress=total.map(|t|(n as f32/t.max(1)as f32).clamp(0.0,1.0)).unwrap_or(0.0);self.download_label=format!("{} / {}",bytes(n),total.map(bytes).unwrap_or_else(||"الحجم غير معروف".into()));}
    DownloadEvent::Finished(p)=>{self.downloading=false;if !self.installed_models.contains(&p){self.installed_models.push(p.clone());}self.status="اكتمل التنزيل".into();self.notices.push(format!("اكتمل تنزيل {}",p.display()));}

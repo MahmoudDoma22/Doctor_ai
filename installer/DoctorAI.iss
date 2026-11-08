@@ -17,8 +17,10 @@ WizardStyle=modern
 UninstallDisplayIcon={app}\desktop\{#AppExeName}
 [Files]
 Source: "..\package\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "Install-Gemma4.ps1"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{autoprograms}\Doctor AI"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Start-DoctorAI.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\desktop\{#AppExeName}"
 Name: "{autodesktop}\Doctor AI"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Start-DoctorAI.ps1"""; WorkingDir: "{app}"; IconFilename: "{app}\desktop\{#AppExeName}"
 [Run]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Install-Gemma4.ps1"""; Flags: postinstall waituntilterminated runasoriginaluser; Description: "Download and install Gemma 4 E4B (several GB)"
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Start-DoctorAI.ps1"""; WorkingDir: "{app}"; Flags: postinstall skipifsilent; Description: "Launch Doctor AI"

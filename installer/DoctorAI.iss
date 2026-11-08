@@ -25,7 +25,7 @@ Name: "{autoprograms}\Doctor AI"; Filename: "{app}\Start-DoctorAI.vbs"; WorkingD
 Name: "{autodesktop}\Doctor AI"; Filename: "{app}\Start-DoctorAI.vbs"; WorkingDir: "{app}"; IconFilename: "{app}\desktop\{#AppExeName}"
 [Run]
 Filename: "{app}\prerequisites\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Microsoft Visual C++ runtime..."; Flags: runhidden waituntilterminated
-Filename: "{app}\Start-DoctorAI.vbs"; WorkingDir: "{app}"; Flags: postinstall skipifsilent; Description: "Launch Doctor AI"
+Filename: "{app}\Start-DoctorAI.vbs"; WorkingDir: "{app}"; Flags: postinstall skipifsilent runasoriginaluser; Description: "Launch Doctor AI"
 [Code]
 var
   RequirementsPage, ModulesPage, ModelPage: TWizardPage;
@@ -53,7 +53,7 @@ begin
   Params:='-NoProfile -NonInteractive -ExecutionPolicy Bypass -STA -File "'+ExpandConstant('{app}\Install-Model.ps1')+'" -Aria2Path "'+ExpandConstant('{app}\download\aria2c.exe')+'"';
   if VisionCheck.Checked then Params:=Params+' -Vision';
   WizardForm.StatusLabel.Caption:='Checking hardware and preparing the recommended offline model...';
-  if not Exec(PowerShellPath,Params,ExpandConstant('{app}'),SW_HIDE,ewWaitUntilTerminated,ResultCode) then MsgBox('Could not start the model downloader. The desktop is installed; run Install-Model.ps1 later.',mbError,MB_OK)
+  if not ExecAsOriginalUser(PowerShellPath,Params,ExpandConstant('{app}'),SW_HIDE,ewWaitUntilTerminated,ResultCode) then MsgBox('Could not start the model downloader. The desktop is installed; run Install-Model.ps1 later.',mbError,MB_OK)
   else if ResultCode<>0 then MsgBox('The offline model was not installed (error '+IntToStr(ResultCode)+'). The desktop is still installed. Re-run the installer and retry the download.',mbInformation,MB_OK);
  end;
 end;

@@ -4,7 +4,7 @@
 #define AppExeName "DoctorAI.exe"
 
 [Setup]
-AppId={{D8A4F5B2-8B1E-4B1B-8A32-DOCTORAI0001}
+AppId={D8A4F5B2-8B1E-4B1B-8A32-0D0C0A100001}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}

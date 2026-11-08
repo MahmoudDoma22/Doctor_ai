@@ -155,8 +155,8 @@ void MainWindow::chooseFiles() {
 }
 void MainWindow::send() {
     const QString msg = composer_->text().trimmed();
-    if (msg.isEmpty() && attachments_.isEmpty()) return;
-    appendMessage("You", msg.isEmpty() ? "[Image attachment]" : msg);
+    if (msg.isEmpty() && attachments_.isEmpty() && videos_.isEmpty()) return;
+    appendMessage("You", msg.isEmpty() ? "[Media attachment]" : msg);
     composer_->clear(); composer_->setEnabled(false);
     api_.sendMessage(msg, attachments_);
     attachments_.clear();

@@ -26,5 +26,6 @@ private:
     void appendMessage(const QString &who, const QString &text);
     void chooseFiles();
     void send();
+    void scanLocalSystem();
     void applyTheme();
 };

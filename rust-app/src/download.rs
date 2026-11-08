@@ -118,7 +118,7 @@ pub fn start_download(
             let mut received = if resumed { offset } else { 0 };
             while let Some(chunk) = stream.next().await {
                 if cancel.load(Ordering::Relaxed) {
-                    let _ = file.flush().await;
+                    let _ = file.sync_all().await;
                     let _ = tx.send(DownloadEvent::Cancelled);
                     return;
                 }

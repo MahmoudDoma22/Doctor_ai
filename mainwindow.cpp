@@ -158,8 +158,9 @@ void MainWindow::send() {
     if (msg.isEmpty() && attachments_.isEmpty() && videos_.isEmpty()) return;
     appendMessage("You", msg.isEmpty() ? "[Media attachment]" : msg);
     composer_->clear(); composer_->setEnabled(false);
-    api_.sendMessage(msg, attachments_);
+    api_.sendMessage(msg, attachments_, videos_);
     attachments_.clear();
+    videos_.clear();
 }
 void MainWindow::applyTheme() {
     setStyleSheet(R"(

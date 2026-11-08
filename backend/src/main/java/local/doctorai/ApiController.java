@@ -12,8 +12,8 @@ import org.springframework.web.client.RestClient;
 public class ApiController {
  private final Path root=Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
  private final Path modelDir=Path.of(System.getProperty("user.home"),".doctor-ai","models");
- private final Path log=Path.of(System.getProperty("user.home"),".doctor-ai","llama-server.log");
- private final Path exe=root.resolve("runtime/llama/llama-server.exe");
+ private final Path log=Path.of(System.getProperty("user.home"),".doctor-ai","mistralrs.log");
+ private final Path exe=root.resolve("runtime/mistralrs/mistralrs.exe");
  private volatile Process process;
  private final RestClient engine=RestClient.builder().baseUrl("http://127.0.0.1:8080").requestFactory(f->f.setConnectTimeout(Duration.ofSeconds(3))).build();
 
@@ -34,7 +34,7 @@ public class ApiController {
   try{
    Files.createDirectories(log.getParent());
    int threads=Math.max(2,Math.min(12,Runtime.getRuntime().availableProcessors()-1));
-   List<String> args=new ArrayList<>(List.of(exe.toString(),"--model",m.toString(),"--host","127.0.0.1","--port","8080","--ctx-size","2048","--threads",String.valueOf(threads),"--n-gpu-layers","0"));
+   List<String> args=new ArrayList<>(List.of(exe.toString(),"serve","-f",m.toString(),"--host","127.0.0.1","--port","8080","--no-ui"));
    Path p=projector(m); if(p!=null){args.add("--mmproj");args.add(p.toString());}
    ProcessBuilder pb=new ProcessBuilder(args);pb.directory(exe.getParent().toFile());pb.redirectErrorStream(true);pb.redirectOutput(ProcessBuilder.Redirect.appendTo(log.toFile()));process=pb.start();
   }catch(Exception e){try{Files.createDirectories(log.getParent());Files.writeString(log,e+System.lineSeparator(),StandardOpenOption.CREATE,StandardOpenOption.APPEND);}catch(Exception ignored){}}
@@ -45,12 +45,12 @@ public class ApiController {
  }
  @GetMapping("/health") public Map<String,Object> health(){
   boolean installed=model()!=null,binary=Files.isRegularFile(exe),r=installed&&binary&&ready();
-  String msg=!binary?"Bundled local AI engine is missing.":!installed?"No offline model is installed. Run the Doctor AI model setup.":r?"Offline AI engine is ready.":"The model is installed and the local engine is starting. Check llama-server.log if this persists.";
-  return Map.of("ok",true,"backend",true,"ready",r,"modelInstalled",installed,"engineAvailable",binary,"engine","llama.cpp","message",msg);
+  String msg=!binary?"Bundled Rust inference engine is missing.":!installed?"No offline model is installed. Run the Doctor AI model setup.":r?"Offline AI engine is ready.":"The model is installed and the local engine is starting. Check mistralrs.log if this persists.";
+  return Map.of("ok",true,"backend",true,"ready",r,"modelInstalled",installed,"engineAvailable",binary,"engine","mistral.rs (Rust)","message",msg);
  }
  @GetMapping("/models") public Map<String,Object> models(){
   Path m=model();String n=m==null?"":m.getFileName().toString();
-  return Map.of("models",m==null?List.of():List.of(n),"active",n,"count",m==null?0:1,"engine","llama.cpp");
+  return Map.of("models",m==null?List.of():List.of(n),"active",n,"count",m==null?0:1,"engine","mistral.rs (Rust)");
  }
  @GetMapping("/hardware") public Map<String,Object> hardware(){
   long bytes=0;var b=ManagementFactory.getOperatingSystemMXBean();
@@ -85,7 +85,7 @@ public class ApiController {
    user.put("content",content);
   }else user.put("content",prompt);
   try{
-   Map<String,Object> payload=Map.of("model",m.getFileName().toString(),"messages",List.of(user),"temperature",0.4,"max_tokens",tokens,"stream",false);
+   Map<String,Object> payload=Map.of("model","default","messages",List.of(user),"temperature",0.4,"max_tokens",tokens,"stream",false);
    Map<?,?> result=engine.post().uri("/v1/chat/completions").contentType(MediaType.APPLICATION_JSON).body(payload).retrieve().body(Map.class);
    Object choices=result==null?null:result.get("choices");
    if(choices instanceof List<?> list&&!list.isEmpty()&&list.get(0) instanceof Map<?,?> c&&c.get("message") instanceof Map<?,?> msg){

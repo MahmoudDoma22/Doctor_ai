@@ -4,7 +4,7 @@ use serde_json::json;
 use std::{io::{Read,Write},net::{TcpListener,TcpStream},process::{Child,Command,Stdio},sync::{Arc,atomic::{AtomicBool,Ordering}},time::{Duration,Instant}};
 use tokio::sync::mpsc;
 
-#[derive(PartialEq,Clone,Copy)] enum Page{Welcome,Chat,Models,Downloads,Tools,Settings}
+#[derive(PartialEq,Clone,Copy)] enum Page{Welcome,Chat,Models,Downloads,Tools,Settings,ImageStudio,VideoStudio,CodeStudio,Skills,Training}
 pub struct DoctorApp{
  page:Page,ram:u64,available_ram:u64,free_disk:u64,cpu:String,selected:usize,notices:Vec<String>,
  download_rx:mpsc::UnboundedReceiver<DownloadEvent>,download_tx:mpsc::UnboundedSender<DownloadEvent>,
@@ -104,7 +104,7 @@ impl eframe::App for DoctorApp{
  fn update(&mut self,ctx:&egui::Context,_:&mut eframe::Frame){
   self.poll();ctx.request_repaint_after(Duration::from_millis(80));
   egui::TopBottomPanel::top("header").show(ctx,|ui|{ui.horizontal(|ui|{ui.heading("✚ Doctor AI");ui.separator();ui.label("Private local AI");});});
-  egui::SidePanel::left("nav").resizable(false).default_width(190.0).show(ctx,|ui|{ui.add_space(12.0);ui.heading("Navigation");ui.separator();self.nav(ui,Page::Chat,"✧  Chat");self.nav(ui,Page::Models,"▣  Models");self.nav(ui,Page::Downloads,"⇩  Downloads");self.nav(ui,Page::Tools,"▤  Media tools");self.nav(ui,Page::Settings,"⚙  Settings");ui.with_layout(egui::Layout::bottom_up(egui::Align::Min),|ui|{ui.separator();ui.label("Notifications");for n in self.notices.iter().rev().take(4){ui.label(egui::RichText::new(n).small().weak());}});});
+  egui::SidePanel::left("nav").resizable(false).default_width(190.0).show(ctx,|ui|{ui.add_space(12.0);ui.heading("Navigation");ui.separator();self.nav(ui,Page::Chat,"✧  Chat");self.nav(ui,Page::Models,"▣  Models");self.nav(ui,Page::Downloads,"⇩  Downloads");self.nav(ui,Page::Tools,"▤  Media tools");self.nav(ui,Page::Settings,"⚙  Settings");ui.separator();ui.heading("Studios");self.nav(ui,Page::ImageStudio,"▧  Image Studio");self.nav(ui,Page::VideoStudio,"▶  Video Studio");self.nav(ui,Page::CodeStudio,"⌘  Code Studio");self.nav(ui,Page::Skills,"✦  Skills");self.nav(ui,Page::Training,"◎  Training & Knowledge");ui.with_layout(egui::Layout::bottom_up(egui::Align::Min),|ui|{ui.separator();ui.label("Notifications");for n in self.notices.iter().rev().take(4){ui.label(egui::RichText::new(n).small().weak());}});});
   egui::TopBottomPanel::bottom("status").show(ctx,|ui|{ui.horizontal(|ui|{ui.label("●");ui.label(&self.status);});});
   egui::CentralPanel::default().show(ctx,|ui|match self.page{
    Page::Welcome=>{ui.add_space(24.0);egui::Frame::group(ui.style()).show(ui,|ui|{ui.horizontal(|ui|{ui.heading(egui::RichText::new("✚").size(48.0).color(egui::Color32::from_rgb(56,211,190)));ui.vertical(|ui|{ui.heading(egui::RichText::new("DOCTOR AI").size(30.0).strong());ui.label("Your local AI assistant — powered by Rust and designed for privacy");});});ui.add_space(10.0);ui.label("Native Rust app • Local inference • Model control • Privacy");});ui.add_space(16.0);ui.heading("Welcome — let's set up your device");ui.label("Automatic hardware check, installed model discovery, and a suitable model recommendation.");ui.add_space(10.0);egui::Frame::group(ui.style()).show(ui,|ui|{ui.heading("Device check");ui.columns(2,|cols|{cols[0].label(format!("Total memory: {} GB",self.ram));cols[0].label(format!("Available memory: {} GB",self.available_ram));cols[1].label(format!("Free disk space: {} GB",self.free_disk));cols[1].label(format!("Processor: {}",self.cpu));});ui.separator();let m=&MODELS[catalog::recommended(self.ram,self.available_ram)];ui.strong(format!("Recommended model: {}",m.name));ui.label(m.description);ui.label(if self.model_present(m){"Model found in known local folders ✓"}else{"Model not found — download with resume support"});});ui.add_space(12.0);ui.horizontal(|ui|{if ui.button("1 — Choose and download a model").clicked(){self.page=Page::Models;}if ui.button("2 — Open Chat").clicked(){self.page=Page::Chat;}});ui.add_space(8.0);ui.label(if self.scan_complete{format!("Detected {} GGUF model files and {} local tools.",self.installed_models.len(),self.installed_tools.iter().filter(|(_,v)|*v).count())}else{"Scanning local models and tools...".into()});},
@@ -112,6 +112,29 @@ impl eframe::App for DoctorApp{
    Page::Downloads=>{ui.heading("Downloads");ui.label(&self.download_label);if !self.download_speed.is_empty(){ui.label(format!("Download speed: {}",self.download_speed));}if self.downloading{ui.add(egui::ProgressBar::new(self.download_progress).show_percentage());if ui.button("Stop download").clicked(){self.cancel.store(true,Ordering::Relaxed);}}else{ui.label("No active downloads.");ui.label("Partial downloads are saved and can resume when retried.");}},
    Page::Chat=>{ui.heading("Chat");if self.engine.is_none(){if ui.button("Start local model").clicked(){self.start_engine();}}else if self.engine_ready{ui.label("● Local engine ready");}else{ui.label("Loading model and checking engine readiness...");}egui::ScrollArea::vertical().max_height(470.0).stick_to_bottom(true).show(ui,|ui|{egui::Frame::group(ui.style()).show(ui,|ui|{ui.label(if self.busy{"● Generating..."}else{"Response"});ui.label(&self.answer);});});ui.horizontal(|ui|{ui.add_enabled(!self.busy,egui::TextEdit::singleline(&mut self.prompt).hint_text("Message Doctor AI...").desired_width(f32::INFINITY));if self.busy{if ui.button("■ Stop").clicked(){self.stop.store(true,Ordering::Relaxed);}}else if ui.add_enabled(self.engine_ready,egui::Button::new("Send  ➤")).clicked(){self.send_prompt();}});},
    Page::Tools=>{ui.heading("Local modules and tools");ui.label("Doctor AI checks common folders and PATH. Undetected tools can be added manually later.");if ui.button("Rescan tools and models").clicked(){self.begin_scan();}if !self.scan_complete{ui.label("Scanning in the background...");}for (name,installed) in &self.installed_tools{ui.horizontal(|ui|{ui.label(*name);ui.label(if *installed{"Available locally ✓"}else{"Not detected"});});}ui.separator();ui.label("Official download links. These optional tools are not bundled with the installer.");for(n,d,u)in[("ComfyUI","Image generation and Stable Diffusion workflows.","https://github.com/comfyanonymous/ComfyUI"),("Krita","Digital painting and image editing.","https://krita.org/"),("Whisper.cpp","Local speech-to-text. Runs on CPU, including smaller models on limited memory.","https://github.com/ggml-org/whisper.cpp"),("Piper","Local text-to-speech with a lightweight CPU engine.","https://github.com/rhasspy/piper"),("Blender","3D modeling, animation, and rendering.","https://www.blender.org/download/"),("Shotcut","Free video editor.","https://shotcut.org/download/"),("Kdenlive","Multitrack video editor.","https://kdenlive.org/download/"),("Wan 2.1","Open video-generation models; requires substantial hardware.","https://github.com/Wan-Video/Wan2.1")]{ui.horizontal(|ui|{ui.strong(n);ui.label(d);if ui.button("Open").clicked(){let _=open::that(u);}});}},
+
+   Page::ImageStudio|Page::VideoStudio|Page::CodeStudio|Page::Skills|Page::Training=>{
+    let (id,title)=match self.page{
+     Page::ImageStudio=>(crate::workspace::WorkspaceId::ImageStudio,"Image Studio"),
+     Page::VideoStudio=>(crate::workspace::WorkspaceId::VideoStudio,"Video Studio"),
+     Page::CodeStudio=>(crate::workspace::WorkspaceId::CodeStudio,"Code Studio"),
+     Page::Skills=>(crate::workspace::WorkspaceId::Skills,"Skills"),
+     _=>(crate::workspace::WorkspaceId::Training,"Training & Knowledge"),
+    };
+    let spec=crate::workspace::get(id);
+    ui.heading(title);
+    ui.label(spec.summary);
+    ui.add_space(12.0);
+    egui::Frame::group(ui.style()).show(ui,|ui|{
+     ui.strong("Backend availability");
+     ui.label(spec.status);
+     ui.separator();
+     ui.strong("Required capabilities");
+     for capability in spec.required { ui.label(format!("• {:?}",capability)); }
+    });
+    ui.add_space(8.0);
+    ui.label("This workspace is registered in the capability system. Actions stay disabled until a compatible backend is installed, tested, and connected.");
+   },
    Page::Settings=>{ui.heading("Settings");ui.label("Model folder:");ui.code(catalog::model_dir().display().to_string());ui.label(format!("Local model server: http://127.0.0.1:{}",self.engine_port));
   ui.label(format!("Locally detected models: {}",self.installed_models.len()));ui.label(format!("Engine log: {}",catalog::model_dir().parent().unwrap_or_else(||std::path::Path::new(".")).join("mistralrs.log").display()));if ui.button("Stop engine").clicked(){if let Some(mut c)=self.engine.take(){let _=c.kill();self.engine_ready=false;self.status="Engine stopped".into();}}}
   });

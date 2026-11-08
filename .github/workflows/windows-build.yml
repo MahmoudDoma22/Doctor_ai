@@ -1,0 +1,73 @@
+name: Build Doctor AI for Windows
+
+on:
+  push:
+    branches: [main, "fix/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Configure desktop
+        shell: pwsh
+        run: cmake -S . -B build -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build desktop
+        run: cmake --build build --config Release
+
+      - name: Deploy Qt runtime
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Filter DoctorAI.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "DoctorAI.exe was not produced" }
+          windeployqt --release $exe.FullName
+
+      - name: Build Java backend
+        run: mvn -DskipTests package
+
+      - name: Verify outputs
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path build -Filter DoctorAI.exe -Recurse | Select-Object -First 1
+          $jar = Get-ChildItem -Path target -Filter *.jar | Where-Object { $_.Name -notlike "original-*" } | Select-Object -First 1
+          if (-not $exe) { throw "Missing DoctorAI.exe" }
+          if (-not $jar) { throw "Missing executable backend JAR" }
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item $exe.DirectoryName package/desktop -Recurse
+          New-Item -ItemType Directory -Force -Path package/backend | Out-Null
+          Copy-Item $jar.FullName package/backend/doctor-ai-backend.jar
+          Copy-Item app.py,requirements.txt package/
+          Copy-Item concise-responses.md package/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path package/* -DestinationPath DoctorAI-Windows-Portable.zip -Force
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: DoctorAI-Windows-Portable
+          path: DoctorAI-Windows-Portable.zip
+          if-no-files-found: error

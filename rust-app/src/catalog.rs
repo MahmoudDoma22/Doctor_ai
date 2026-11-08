@@ -55,7 +55,6 @@ pub fn find_model_path(model: &Model) -> Option<PathBuf> {
         roots.push(home.join(".cache").join("huggingface").join("hub"));
         roots.push(home.join("Downloads").join("DoctorAI"));
         roots.push(home.join("Documents").join("DoctorAI").join("models"));
-        roots.push(home.join("Documents").join("DoctorAI").join("models"));
     }
     for root in roots {
         if let Some(found) = find_named_file(&root, &target, 7) {
@@ -95,6 +94,7 @@ pub fn installed_model_files() -> Vec<PathBuf> {
     if let Some(home) = UserDirs::new().map(|u| u.home_dir().to_path_buf()) {
         roots.push(home.join(".cache").join("huggingface").join("hub"));
         roots.push(home.join("Downloads").join("DoctorAI"));
+        roots.push(home.join("Documents").join("DoctorAI").join("models"));
     }
     let mut found = Vec::new();
     for root in roots {
@@ -120,10 +120,6 @@ fn collect_gguf(root: &Path, depth: usize, output: &mut Vec<PathBuf>) {
             collect_gguf(&path, depth - 1, output);
         }
     }
-}
-
-pub fn present(model: &Model) -> bool {
-    find_model_path(model).is_some()
 }
 
 pub fn detect_available_ram_gb() -> u64 {
@@ -156,12 +152,6 @@ pub fn detect_cpu() -> String {
     s.refresh_cpu_all();
     let brand = s.cpus().first().map(|c| c.brand()).unwrap_or("Unknown CPU");
     format!("{} · {} logical threads", brand, s.cpus().len())
-}
-
-pub fn ensure_model_dir() -> Result<PathBuf, String> {
-    let p = model_dir();
-    fs::create_dir_all(&p).map_err(|e| format!("{}: {e}", p.display()))?;
-    Ok(p)
 }
 
 fn contains_executable(root: &Path, executable: &str, depth: usize) -> bool {

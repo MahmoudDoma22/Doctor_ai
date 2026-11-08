@@ -57,6 +57,26 @@ if (-not $javaExe) {
   exit 1
 }
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
+# Start the bundled Python media service (video frame extraction).
+$mediaDir = Join-Path $root "media"
+$pythonExe = Join-Path $root "python\python.exe"
+$mediaHealth = Test-Http "http://127.0.0.1:8788/health"
+if (-not $mediaHealth -and (Test-Path $pythonExe)) {
+  $env:PYTHONPATH = Join-Path $mediaDir "site-packages"
+  $mediaOut = Join-Path $logDir "media.log"
+  $mediaErr = Join-Path $logDir "media-error.log"
+  try {
+    Start-Process -FilePath $pythonExe -ArgumentList "-m uvicorn app:app --host 127.0.0.1 --port 8788" -WorkingDirectory $mediaDir -WindowStyle Hidden -RedirectStandardOutput $mediaOut -RedirectStandardError $mediaErr | Out-Null
+    for ($i = 0; $i -lt 20 -and -not $mediaHealth; $i++) {
+      Start-Sleep -Seconds 1
+      $mediaHealth = Test-Http "http://127.0.0.1:8788/health"
+    }
+  } catch {
+    Write-Warning ("Could not start media service: " + $_.Exception.Message)
+  }
+}
+
 $initialHealth = Test-Http "$baseUrl/api/health"
 $ready = ($initialHealth -and $initialHealth.ok -eq $true)
 if (-not $ready) {

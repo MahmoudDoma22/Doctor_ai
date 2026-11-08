@@ -49,6 +49,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "mistral.rs engine build failed" }
           $engine = "external/mistral.rs/target/x86_64-pc-windows-msvc/release/mistralrs.exe"
           if (-not (Test-Path $engine)) { throw "mistralrs.exe was not produced at $engine" }
+          & $engine --help *> $null
+          if ($LASTEXITCODE -ne 0) { throw "Rust inference engine CLI smoke test failed" }
+          & $engine serve --help *> $null
+          if ($LASTEXITCODE -ne 0) { throw "Rust inference server command smoke test failed" }
       - name: Stage Rust application and icon
         shell: pwsh
         run: |
@@ -75,6 +79,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
           if (-not (Test-Path installer-output/DoctorAI-Setup.exe)) { throw "Installer output missing" }
           if ((Get-Item installer-output/DoctorAI-Setup.exe).Length -lt 10MB) { throw "Installer output is unexpectedly small" }
+      - name: Smoke-test custom install directory and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $testDir = Join-Path $env:RUNNER_TEMP "DoctorAI-Install-Test"
+          & installer-output/DoctorAI-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$testDir"
+          if ($LASTEXITCODE -ne 0) { throw "Silent installer smoke test failed" }
+          if (-not (Test-Path (Join-Path $testDir "DoctorAI.exe"))) { throw "Installed desktop executable is missing" }
+          if (-not (Test-Path (Join-Path $testDir "runtime/mistralrs/mistralrs.exe"))) { throw "Installed Rust inference engine is missing" }
+          $uninstaller = Join-Path $testDir "unins000.exe"
+          if (-not (Test-Path $uninstaller)) { throw "Uninstaller was not created" }
+          & $uninstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          if ($LASTEXITCODE -ne 0) { throw "Uninstaller smoke test failed" }
       - name: Upload Windows installer
         uses: actions/upload-artifact@v6
         with:

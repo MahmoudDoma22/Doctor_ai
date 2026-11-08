@@ -1,7 +1,7 @@
 use crate::{catalog::{self, MODELS}, download::{self, DownloadEvent}};
 use eframe::egui;
 use serde_json::json;
-use std::{process::{Child,Command,Stdio},sync::{Arc,atomic::{AtomicBool,Ordering}},time::Duration};
+use std::{io::{Read,Write},net::{TcpListener,TcpStream},process::{Child,Command,Stdio},sync::{Arc,atomic::{AtomicBool,Ordering}},time::{Duration,Instant}};
 use tokio::sync::mpsc;
 
 #[derive(PartialEq,Clone,Copy)] enum Page{Welcome,Chat,Models,Downloads,Tools,Settings}
@@ -11,6 +11,7 @@ pub struct DoctorApp{
  cancel:Arc<AtomicBool>,downloading:bool,download_progress:f32,download_label:String,
  prompt:String,answer:String,busy:bool,stop:Arc<AtomicBool>,engine:Option<Child>,
  status:String,chat_rx:Option<std::sync::mpsc::Receiver<String>>,download_speed:String,last_progress:Option<(u64,std::time::Instant)>,
+ http:reqwest::Client,engine_port:u16,engine_ready:bool,engine_started_at:Option<Instant>, 
 }
 impl DoctorApp{
  pub fn new()->Self{
@@ -23,24 +24,28 @@ impl DoctorApp{
   download::start_download(m.url.into(),catalog::model_path(m),self.cancel.clone(),self.download_tx.clone());
  }
  fn start_engine(&mut self){
-  let path=catalog::model_path(&MODELS[self.selected]);if !path.exists(){self.status="الموديل غير موجود؛ افتح صفحة الموديلات لتنزيله".into();return;}
+  let Some(path)=catalog::find_model_path(&MODELS[self.selected]) else {self.status="الموديل غير موجود؛ افتح صفحة الموديلات لتنزيله".into();return;};
   let exe=std::env::current_exe().ok().and_then(|p|p.parent().map(|p|p.join("runtime").join("mistralrs").join("mistralrs.exe")));
   let Some(exe)=exe.filter(|p|p.exists())else{self.status="محرك Rust غير موجود في runtime/mistralrs".into();return;};
   let log_path=catalog::model_dir().parent().unwrap_or_else(||std::path::Path::new(".")).join("mistralrs.log");
+  let listener=match TcpListener::bind(("127.0.0.1",0)){Ok(l)=>l,Err(e)=>{self.status=format!("تعذر حجز منفذ محلي للمحرك: {e}");return;}};
+  self.engine_port=listener.local_addr().map(|a|a.port()).unwrap_or(0);drop(listener);
+  if self.engine_port==0{self.status="تعذر تحديد منفذ محلي للمحرك".into();return;}
   if let Some(parent)=log_path.parent(){if let Err(e)=std::fs::create_dir_all(parent){self.status=format!("تعذر إنشاء مجلد السجل {}: {e}",parent.display());return;}}
   let log=match std::fs::OpenOptions::new().create(true).append(true).open(&log_path){Ok(f)=>f,Err(e)=>{self.status=format!("تعذر فتح سجل المحرك {}: {e}",log_path.display());return;}};
   let stdout=match log.try_clone(){Ok(f)=>Stdio::from(f),Err(e)=>{self.status=format!("تعذر تجهيز سجل المحرك {}: {e}",log_path.display());return;}};
-  match Command::new(exe).args(["serve","-f"]).arg(path).args(["--host","127.0.0.1","--port","8080","--no-ui"]).stdout(stdout).stderr(Stdio::from(log)).spawn(){Ok(c)=>{self.engine=Some(c);self.status=format!("بدأ تشغيل المحرك المحلي؛ سجل التفاصيل: {}",log_path.display());},Err(e)=>self.status=format!("فشل تشغيل المحرك؛ السجل: {} — {e}",log_path.display())}
+  match Command::new(exe).args(["serve","-f"]).arg(path).args(["--host","127.0.0.1","--port",&self.engine_port.to_string(),"--no-ui"]).stdout(stdout).stderr(Stdio::from(log)).spawn(){Ok(c)=>{self.engine=Some(c);self.engine_ready=false;self.engine_started_at=Some(Instant::now());self.status=format!("جاري تحميل الموديل والتحقق من جاهزية المحرك على المنفذ {}؛ السجل: {}",self.engine_port,log_path.display());},Err(e)=>self.status=format!("فشل تشغيل المحرك؛ السجل: {} — {e}",log_path.display())}
  }
  fn send_prompt(&mut self){
   if self.prompt.trim().is_empty()||self.busy{return;}let prompt=std::mem::take(&mut self.prompt);
+  if !self.engine_ready{self.status="المحرك لم يصبح جاهزاً بعد؛ انتظر اكتمال تحميل الموديل".into();return;}
   self.answer.clear();self.busy=true;self.stop.store(false,Ordering::Relaxed);self.status="جاري الاتصال بالموديل المحلي...".into();
-  let stop=self.stop.clone();let(tx,rx)=std::sync::mpsc::channel();let tx_error=tx.clone();self.chat_rx=Some(rx);
+  let stop=self.stop.clone();let http=self.http.clone();let port=self.engine_port;let(tx,rx)=std::sync::mpsc::channel();let tx_error=tx.clone();self.chat_rx=Some(rx);
   std::thread::spawn(move||{
    let rt=tokio::runtime::Builder::new_multi_thread().enable_all().build();
    let result=match rt{Ok(rt)=>rt.block_on(async move{
-    let client=reqwest::Client::new();let body=json!({"model":"default","stream":true,"messages":[{"role":"user","content":prompt}]});
-    let mut response=client.post("http://127.0.0.1:8080/v1/chat/completions").json(&body).send().await.map_err(|e|format!("الاتصال بالمحرك: {e}"))?;
+    let body=json!({"model":"default","stream":true,"messages":[{"role":"user","content":prompt}]});
+    let mut response=http.post(format!("http://127.0.0.1:{port}/v1/chat/completions")).json(&body).send().await.map_err(|e|format!("الاتصال بالمحرك المحلي: {e}"))?;
     if !response.status().is_success(){return Err(format!("المحرك رجع HTTP {}",response.status()));}
     let mut buffer=String::new();
     loop {
@@ -68,6 +73,7 @@ impl DoctorApp{
    DownloadEvent::Error(e)=>{self.downloading=false;self.status=format!("خطأ: {e}");self.notices.push(self.status.clone());}
    DownloadEvent::Cancelled=>{self.downloading=false;self.status="تم إيقاف التنزيل؛ الملف الجزئي محفوظ".into();}
   }}
+  if let Some(child)=self.engine.as_mut(){match child.try_wait(){Ok(Some(code))=>{self.engine_ready=false;self.engine=None;self.status=format!("محرك Rust توقف برمز {code}. راجع سجل mistralrs.log في مجلد .doctor-ai");},Err(e)=>{self.engine_ready=false;self.status=format!("تعذر فحص عملية المحرك: {e}");},Ok(None)=>{let ready=probe_engine(self.engine_port);if ready&&!self.engine_ready{self.status="المحرك المحلي جاهز — يمكنك بدء المحادثة".into();}self.engine_ready=ready;if !ready{if let Some(start)=self.engine_started_at{if start.elapsed()>Duration::from_secs(180){self.status="تأخر تحميل الموديل أكثر من 3 دقائق؛ راجع سجل mistralrs.log وتأكد من الذاكرة".into();}}}}}}
   let mut disconnected=false;if let Some(rx)=&self.chat_rx{loop{match rx.try_recv(){Ok(s)=>self.answer.push_str(&s),Err(std::sync::mpsc::TryRecvError::Empty)=>break,Err(std::sync::mpsc::TryRecvError::Disconnected)=>{disconnected=true;break;}}}}
   if disconnected{self.chat_rx=None;self.busy=false;if !self.stop.load(Ordering::Relaxed){self.status="اكتمل الرد".into();}}
   if self.stop.load(Ordering::Relaxed)&&self.busy{self.busy=false;self.chat_rx=None;self.status="تم إيقاف الرد".into();}
@@ -84,10 +90,26 @@ impl eframe::App for DoctorApp{
    Page::Welcome=>{ui.add_space(28.0);ui.heading("مساعدك الذكي، على جهازك");ui.label("خطوات إعداد واضحة، تشغيل محلي، وتحكم كامل في موديلاتك.");ui.add_space(18.0);egui::Frame::group(ui.style()).show(ui,|ui|{ui.heading("فحص الجهاز");ui.label(format!("الذاكرة الكلية: {} GB",self.ram));ui.label(format!("الذاكرة المتاحة الآن: {} GB",self.available_ram));ui.label(format!("المساحة المتاحة على القرص: {} GB",self.free_disk));ui.label(format!("المعالج: {}",self.cpu));let m=&MODELS[catalog::recommended(self.ram,self.available_ram)];ui.label(format!("الموديل المقترح: {}",m.name));ui.label(if catalog::present(m){"الموديل موجود على الجهاز ✓"}else{"الموديل غير موجود — يحتاج تنزيل"});});ui.add_space(18.0);if ui.button("ابدأ المحادثة").clicked(){self.page=Page::Chat;}if ui.button("اختيار / تنزيل موديل").clicked(){self.page=Page::Models;}},
    Page::Models=>{ui.heading("مكتبة الموديلات");ui.label(format!("الجهاز: {} GB RAM • {}",self.ram,self.cpu));for(i,m)in MODELS.iter().enumerate(){egui::Frame::group(ui.style()).show(ui,|ui|{ui.horizontal(|ui|{ui.radio_value(&mut self.selected,i,"");ui.vertical(|ui|{ui.strong(m.name);ui.label(m.description);ui.label(format!("ذاكرة موصى بها: {} GB • الحجم: {} • {}",m.ram_gb,m.size,m.tier));});ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{if catalog::present(m){ui.label("موجود ✓");}else if ui.button("فتح صفحة المصدر").clicked(){let _=open::that(m.url);}});});});}ui.add_space(8.0);if catalog::present(&MODELS[self.selected]){ui.label("الموديل المحدد موجود بالفعل.");}else if ui.button("تنزيل الموديل المحدد").clicked(){self.start_model_download();}},
    Page::Downloads=>{ui.heading("التنزيلات");ui.label(&self.download_label);if !self.download_speed.is_empty(){ui.label(format!("سرعة التنزيل: {}",self.download_speed));}if self.downloading{ui.add(egui::ProgressBar::new(self.download_progress).show_percentage());if ui.button("إيقاف التنزيل").clicked(){self.cancel.store(true,Ordering::Relaxed);}}else{ui.label("لا توجد تنزيلات نشطة.");ui.label("الملفات الجزئية محفوظة ويمكن استكمالها عند إعادة المحاولة.");}},
-   Page::Chat=>{ui.heading("المحادثة المحلية");if self.engine.is_none(){if ui.button("تشغيل الموديل المحلي").clicked(){self.start_engine();}}else{ui.label("المحرك بدأ — انتظر تحميل النموذج قبل الإرسال.");}egui::ScrollArea::vertical().max_height(470.0).stick_to_bottom(true).show(ui,|ui|{egui::Frame::group(ui.style()).show(ui,|ui|{ui.label(if self.busy{"● يكتب الآن..."}else{"الرد"});ui.label(&self.answer);});});ui.horizontal(|ui|{ui.add_enabled(!self.busy,egui::TextEdit::singleline(&mut self.prompt).hint_text("اكتب رسالتك...").desired_width(f32::INFINITY));if self.busy{if ui.button("■ إيقاف").clicked(){self.stop.store(true,Ordering::Relaxed);}}else if ui.button("إرسال  ➤").clicked(){self.send_prompt();}});},
-   Page::Tools=>{ui.heading("برامج مجانية للصور والفيديو");ui.label("روابط رسمية لمشروعات مجانية؛ التنزيل والتثبيت اختياريان.");for(n,d,u)in[("ComfyUI","توليد الصور وواجهات Stable Diffusion.","https://github.com/comfyanonymous/ComfyUI"),("Krita","تحرير ورسم الصور الرقمية.","https://krita.org/"),("Whisper.cpp","تحويل الصوت إلى نص محلياً؛ يعمل على CPU ويمكن تشغيل نماذج صغيرة بذاكرة محدودة.","https://github.com/ggml-org/whisper.cpp"),("Piper","تحويل النص إلى صوت محلياً؛ محرك خفيف يعمل على CPU.","https://github.com/rhasspy/piper"),("Blender","نمذجة وتحريك ومونتاج ثلاثي الأبعاد.","https://www.blender.org/download/"),("Shotcut","تحرير فيديو مجاني.","https://shotcut.org/download/"),("Kdenlive","مونتاج متعدد المسارات.","https://kdenlive.org/download/"),("Wan 2.1","نماذج مفتوحة لتوليد الفيديو؛ تتطلب موارد كبيرة.","https://github.com/Wan-Video/Wan2.1")]{ui.horizontal(|ui|{ui.strong(n);ui.label(d);if ui.button("فتح").clicked(){let _=open::that(u);}});}},
-   Page::Settings=>{ui.heading("الإعدادات");ui.label("مجلد الموديلات:");ui.code(catalog::model_dir().display().to_string());ui.label("خادم الموديل المحلي: http://127.0.0.1:8080");ui.label(format!("سجل المحرك: {}",catalog::model_dir().parent().unwrap_or_else(||std::path::Path::new(".")).join("mistralrs.log").display()));if ui.button("إيقاف المحرك").clicked(){if let Some(mut c)=self.engine.take(){let _=c.kill();self.status="تم إيقاف المحرك".into();}}}
+   Page::Chat=>{ui.heading("المحادثة المحلية");if self.engine.is_none(){if ui.button("تشغيل الموديل المحلي").clicked(){self.start_engine();}}else if self.engine_ready{ui.label("● المحرك المحلي جاهز");}else{ui.label("جاري تحميل الموديل والتحقق من جاهزية المحرك...");}egui::ScrollArea::vertical().max_height(470.0).stick_to_bottom(true).show(ui,|ui|{egui::Frame::group(ui.style()).show(ui,|ui|{ui.label(if self.busy{"● يكتب الآن..."}else{"الرد"});ui.label(&self.answer);});});ui.horizontal(|ui|{ui.add_enabled(!self.busy,egui::TextEdit::singleline(&mut self.prompt).hint_text("اكتب رسالتك...").desired_width(f32::INFINITY));if self.busy{if ui.button("■ إيقاف").clicked(){self.stop.store(true,Ordering::Relaxed);}}else if ui.add_enabled(self.engine_ready,egui::Button::new("إرسال  ➤")).clicked(){self.send_prompt();}});},
+   Page::Tools=>{ui.heading("الموديولات والبرامج المحلية");ui.label("يفحص Doctor AI المسارات الشائعة وPATH؛ الحالات غير المكتشفة يمكن إضافتها يدوياً لاحقاً.");for (name,installed) in catalog::installed_tools(){ui.horizontal(|ui|{ui.label(name);ui.label(if installed{"موجود محلياً ✓"}else{"غير مكتشف"});});}ui.separator();ui.label("روابط رسمية للتنزيل؛ البرامج التالية اختيارية وليست مدمجة داخل المثبت.");for(n,d,u)in[("ComfyUI","توليد الصور وواجهات Stable Diffusion.","https://github.com/comfyanonymous/ComfyUI"),("Krita","تحرير ورسم الصور الرقمية.","https://krita.org/"),("Whisper.cpp","تحويل الصوت إلى نص محلياً؛ يعمل على CPU ويمكن تشغيل نماذج صغيرة بذاكرة محدودة.","https://github.com/ggml-org/whisper.cpp"),("Piper","تحويل النص إلى صوت محلياً؛ محرك خفيف يعمل على CPU.","https://github.com/rhasspy/piper"),("Blender","نمذجة وتحريك ومونتاج ثلاثي الأبعاد.","https://www.blender.org/download/"),("Shotcut","تحرير فيديو مجاني.","https://shotcut.org/download/"),("Kdenlive","مونتاج متعدد المسارات.","https://kdenlive.org/download/"),("Wan 2.1","نماذج مفتوحة لتوليد الفيديو؛ تتطلب موارد كبيرة.","https://github.com/Wan-Video/Wan2.1")]{ui.horizontal(|ui|{ui.strong(n);ui.label(d);if ui.button("فتح").clicked(){let _=open::that(u);}});}},
+   Page::Settings=>{ui.heading("الإعدادات");ui.label("مجلد الموديلات:");ui.code(catalog::model_dir().display().to_string());ui.label(format!("خادم الموديل المحلي: http://127.0.0.1:{}",self.engine_port));
+  ui.label(format!("الموديلات المكتشفة محلياً: {}",catalog::installed_model_files().len()));ui.label(format!("سجل المحرك: {}",catalog::model_dir().parent().unwrap_or_else(||std::path::Path::new(".")).join("mistralrs.log").display()));if ui.button("إيقاف المحرك").clicked(){if let Some(mut c)=self.engine.take(){let _=c.kill();self.engine_ready=false;self.status="تم إيقاف المحرك".into();}}}
   });
  }
 }
 fn bytes(n:u64)->String{if n>1024*1024*1024{format!("{:.2} GB",n as f64/1024f64.powi(3))}else{format!("{:.1} MB",n as f64/1024f64.powi(2))}}
+
+
+fn probe_engine(port:u16)->bool{
+ if port==0{return false;}
+ let Ok(mut stream)=TcpStream::connect_timeout(&format!("127.0.0.1:{port}").parse().unwrap(),Duration::from_millis(180)) else{return false;};
+ let _=stream.set_read_timeout(Some(Duration::from_millis(250)));
+ let request=b"GET /v1/models HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+ if stream.write_all(request).is_err(){return false;}
+ let mut response=[0u8;512];
+ match stream.read(&mut response){Ok(n)=>String::from_utf8_lossy(&response[..n]).starts_with("HTTP/1.1 200")||String::from_utf8_lossy(&response[..n]).starts_with("HTTP/1.0 200"),Err(_)=>false}
+}
+
+impl Drop for DoctorApp{
+ fn drop(&mut self){if let Some(child)=self.engine.as_mut(){let _=child.kill();let _=child.wait();}}
+}

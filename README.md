@@ -1,6 +1,6 @@
 # Doctor AI — local-first desktop application
 
-Windows-first desktop app with a bundled Java backend and bundled llama.cpp CPU inference engine. Ollama is not required or used.
+Windows-first desktop app with a bundled Java backend and bundled native Rust mistral.rs inference engine. Ollama is not required or used.
 
 ## Offline modules
 - Available: Gemma 4 E2B / E4B local chat.
@@ -25,7 +25,7 @@ mvn -f backend/pom.xml test package
 ```
 
 ## Runtime
-- llama-server listens only on 127.0.0.1:8080.
+- mistral.rs serves the OpenAI-compatible API only on 127.0.0.1:8080.
 - Doctor AI backend listens only on 127.0.0.1:8787.
 - Model files are stored in %USERPROFILE%\.doctor-ai\models.
 - No Ollama, Python, Docker or separate Java install is required by the packaged app.

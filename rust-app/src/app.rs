@@ -16,7 +16,7 @@ pub struct DoctorApp{
 impl DoctorApp{
  pub fn new()->Self{
   let(tx,rx)=mpsc::unbounded_channel();let ram=catalog::detect_ram_gb();let available_ram=catalog::detect_available_ram_gb();let free_disk=catalog::detect_free_disk_gb();let cpu=catalog::detect_cpu();
-  Self{page:Page::Welcome,ram,available_ram,free_disk,cpu,selected:catalog::recommended(ram,available_ram),notices:vec!["مرحباً بك في Doctor AI".into()],download_rx:rx,download_tx:tx,cancel:Arc::new(AtomicBool::new(false)),downloading:false,download_progress:0.0,download_label:String::new(),prompt:String::new(),answer:String::new(),busy:false,stop:Arc::new(AtomicBool::new(false)),engine:None,status:"جاهز".into(),chat_rx:None,download_speed:"".into(),last_progress:None}
+  Self{page:Page::Welcome,ram,available_ram,free_disk,cpu,selected:catalog::recommended(ram,available_ram),notices:vec!["مرحباً بك في Doctor AI".into()],download_rx:rx,download_tx:tx,cancel:Arc::new(AtomicBool::new(false)),downloading:false,download_progress:0.0,download_label:String::new(),prompt:String::new(),answer:String::new(),busy:false,stop:Arc::new(AtomicBool::new(false)),engine:None,status:"جاهز".into(),chat_rx:None,download_speed:"".into(),last_progress:None,http:reqwest::Client::builder().pool_max_idle_per_host(4).connect_timeout(Duration::from_secs(5)).build().unwrap_or_default(),engine_port:0,engine_ready:false,engine_started_at:None}
  }
  fn start_model_download(&mut self){
   let m=&MODELS[self.selected];self.cancel.store(false,Ordering::Relaxed);self.downloading=true;self.download_progress=0.0;
@@ -59,7 +59,7 @@ impl DoctorApp{
      let Some(chunk)=next else { break; };
      buffer.push_str(&String::from_utf8_lossy(&chunk));
      while let Some(pos)=buffer.find('\n'){let line=buffer[..pos].trim().to_string();buffer.drain(..=pos);
-      if let Some(data)=line.strip_prefix("data: "){if data=="[DONE]"{break;}if let Ok(v)=serde_json::from_str::<serde_json::Value>(data){if let Some(s)=v["choices"][0]["delta"]["content"].as_str(){let _=tx.send(s.to_string());}}}
+      if let Some(data)=line.strip_prefix("data:").map(str::trim){if data=="[DONE]"{return Ok::<(),String>(());}if let Ok(v)=serde_json::from_str::<serde_json::Value>(data){if let Some(s)=v["choices"][0]["delta"]["content"].as_str(){let _=tx.send(s.to_string());}}}
      }
     }Ok::<(),String>(())
    }),Err(e)=>Err(format!("تهيئة Tokio: {e}"))};
@@ -73,7 +73,8 @@ impl DoctorApp{
    DownloadEvent::Error(e)=>{self.downloading=false;self.status=format!("خطأ: {e}");self.notices.push(self.status.clone());}
    DownloadEvent::Cancelled=>{self.downloading=false;self.status="تم إيقاف التنزيل؛ الملف الجزئي محفوظ".into();}
   }}
-  if let Some(child)=self.engine.as_mut(){match child.try_wait(){Ok(Some(code))=>{self.engine_ready=false;self.engine=None;self.status=format!("محرك Rust توقف برمز {code}. راجع سجل mistralrs.log في مجلد .doctor-ai");},Err(e)=>{self.engine_ready=false;self.status=format!("تعذر فحص عملية المحرك: {e}");},Ok(None)=>{let ready=probe_engine(self.engine_port);if ready&&!self.engine_ready{self.status="المحرك المحلي جاهز — يمكنك بدء المحادثة".into();}self.engine_ready=ready;if !ready{if let Some(start)=self.engine_started_at{if start.elapsed()>Duration::from_secs(180){self.status="تأخر تحميل الموديل أكثر من 3 دقائق؛ راجع سجل mistralrs.log وتأكد من الذاكرة".into();}}}}}}
+  let child_exit=self.engine.as_mut().map(|child|child.try_wait());
+  match child_exit{Some(Ok(Some(code)))=>{self.engine_ready=false;self.engine=None;self.status=format!("محرك Rust توقف برمز {code}. راجع سجل mistralrs.log في مجلد .doctor-ai");},Some(Err(e))=>{self.engine_ready=false;self.status=format!("تعذر فحص عملية المحرك: {e}");},Some(Ok(None))=>{let ready=probe_engine(self.engine_port);if ready&&!self.engine_ready{self.status="المحرك المحلي جاهز — يمكنك بدء المحادثة".into();}self.engine_ready=ready;if !ready{if let Some(start)=self.engine_started_at{if start.elapsed()>Duration::from_secs(180){self.status="تأخر تحميل الموديل أكثر من 3 دقائق؛ راجع سجل mistralrs.log وتأكد من الذاكرة".into();}}}},None=>{self.engine_ready=false;}}
   let mut disconnected=false;if let Some(rx)=&self.chat_rx{loop{match rx.try_recv(){Ok(s)=>self.answer.push_str(&s),Err(std::sync::mpsc::TryRecvError::Empty)=>break,Err(std::sync::mpsc::TryRecvError::Disconnected)=>{disconnected=true;break;}}}}
   if disconnected{self.chat_rx=None;self.busy=false;if !self.stop.load(Ordering::Relaxed){self.status="اكتمل الرد".into();}}
   if self.stop.load(Ordering::Relaxed)&&self.busy{self.busy=false;self.chat_rx=None;self.status="تم إيقاف الرد".into();}

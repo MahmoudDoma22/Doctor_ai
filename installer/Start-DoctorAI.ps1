@@ -37,16 +37,14 @@ if (-not $ollamaTags -and $ollamaExe) {
     $ollamaTags = Test-Http "$ollamaUrl/api/tags"
   }
 }
-if ($ollamaTags -and $ollamaTags.models) {
-  $gemma = $ollamaTags.models | Where-Object { $_.name -match "(?i)^gemma" } | Select-Object -First 1
-  if ($gemma) { $env:OLLAMA_MODEL = $gemma.name }
-  else {
-    $available = ($ollamaTags.models | ForEach-Object { $_.name }) -join ", "
-    Show-StartupError ("Ollama is running, but no Gemma model was found. Available models: " + $available + [Environment]::NewLine + "Install a Gemma model with: ollama pull gemma4:12b")
-    exit 1
-  }
+if ($ollamaTags -and $ollamaTags.models -and $ollamaTags.models.Count -gt 0) {
+  # Prefer Gemma when present, otherwise use the first installed model.
+  $preferred = $ollamaTags.models | Where-Object { $_.name -match "(?i)^gemma" } | Select-Object -First 1
+  if (-not $preferred) { $preferred = $ollamaTags.models | Select-Object -First 1 }
+  $env:OLLAMA_MODEL = $preferred.name
+  Write-Host ("Doctor AI initial local model: " + $env:OLLAMA_MODEL)
 } else {
-  Show-StartupError "Ollama could not be detected or started. Start Ollama and make sure your Gemma model is installed, then open Doctor AI again."
+  Show-StartupError "Ollama is unavailable or no local models are installed. Start Ollama and install at least one model, then reopen Doctor AI."
   exit 1
 }
 if (Test-Path $bundledJava) { $javaExe = $bundledJava }

@@ -2,11 +2,12 @@ name: Build Doctor AI for Windows
 on:
   push:
     branches: [main, "fix/**"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: doctor-ai-windows-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   windows-build:
     runs-on: windows-2022

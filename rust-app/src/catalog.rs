@@ -47,16 +47,40 @@ pub fn model_path(model: &Model) -> PathBuf {
     model_dir().join(model.file_name)
 }
 
-/// Search only known model locations; never crawl the whole disk.
-pub fn find_model_path(model: &Model) -> Option<PathBuf> {
-    let target = model.file_name.to_ascii_lowercase();
+/// Search known model locations used by Doctor AI, Hugging Face, LM Studio,
+/// Jan, and common user model folders. Avoid an unrestricted whole-disk scan.
+pub fn model_search_roots() -> Vec<PathBuf> {
     let mut roots = vec![model_dir()];
     if let Some(home) = UserDirs::new().map(|u| u.home_dir().to_path_buf()) {
-        roots.push(home.join(".cache").join("huggingface").join("hub"));
-        roots.push(home.join("Downloads").join("DoctorAI"));
-        roots.push(home.join("Documents").join("DoctorAI").join("models"));
+        roots.extend([
+            home.join(".cache/huggingface/hub"),
+            home.join(".cache/lm-studio/models"),
+            home.join(".lmstudio/models"),
+            home.join(".cache/jan/models"),
+            home.join("Downloads/DoctorAI"),
+            home.join("Documents/DoctorAI/models"),
+            home.join("Documents/AI/models"),
+            home.join("Models"),
+        ]);
     }
-    for root in roots {
+    if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+        roots.extend([
+            local.join("LM Studio/models"),
+            local.join("Programs/LM Studio/models"),
+            local.join("nomic.ai/GPT4All"),
+        ]);
+    }
+    if let Some(roaming) = std::env::var_os("APPDATA").map(PathBuf::from) {
+        roots.push(roaming.join("Jan/data/models"));
+    }
+    roots.sort();
+    roots.dedup();
+    roots
+}
+
+pub fn find_model_path(model: &Model) -> Option<PathBuf> {
+    let target = model.file_name.to_ascii_lowercase();
+    for root in model_search_roots() {
         if let Some(found) = find_named_file(&root, &target, 7) {
             return Some(found);
         }
@@ -90,14 +114,8 @@ fn find_named_file(root: &Path, target: &str, depth: usize) -> Option<PathBuf> {
 }
 
 pub fn installed_model_files() -> Vec<PathBuf> {
-    let mut roots = vec![model_dir()];
-    if let Some(home) = UserDirs::new().map(|u| u.home_dir().to_path_buf()) {
-        roots.push(home.join(".cache").join("huggingface").join("hub"));
-        roots.push(home.join("Downloads").join("DoctorAI"));
-        roots.push(home.join("Documents").join("DoctorAI").join("models"));
-    }
     let mut found = Vec::new();
-    for root in roots {
+    for root in model_search_roots() {
         collect_gguf(&root, 5, &mut found);
     }
     found.sort();
@@ -214,5 +232,6 @@ mod tests {
     #[test]
     fn model_search_is_scoped_to_known_locations() {
         assert!(model_dir().ends_with(".doctor-ai/models"));
+        assert!(model_search_roots().contains(&model_dir()));
     }
 }

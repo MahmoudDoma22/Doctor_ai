@@ -35,6 +35,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         appendMessage("System", "Request failed: " + err);
         composer_->setEnabled(true);
     });
+    connect(&api_, &ApiClient::skillSaved, this, [this](bool ok, const QString &message) {
+        if (ok) QMessageBox::information(this, "Skills", message);
+        else QMessageBox::warning(this, "Skills", "Could not save skill: " + message);
+    });
     applyTheme();
 }
 

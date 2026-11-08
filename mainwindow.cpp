@@ -194,7 +194,7 @@ void MainWindow::send() {
 }
 
 void MainWindow::scanLocalSystem() {
-    const QString script = QString::fromUtf8(R"PS(
+    QString script = QString::fromUtf8(R"PS(
 $ErrorActionPreference = 'Continue'
 Write-Output '=== Doctor AI local system scan ==='
 Write-Output ('Computer: ' + $env:COMPUTERNAME)
@@ -230,6 +230,9 @@ foreach ($port in @(8787,11434,8788)) {
   Write-Output ("Port " + $port + ": " + $(if ($listener) { 'LISTENING' } else { 'not listening' }))
 }
 )PS");
+    QString appDir = QCoreApplication::applicationDirPath();
+    appDir.replace("'", "''");
+    script.replace("__DOCTORAI_APP_DIR__", appDir);
     QProcess process;
     process.start("powershell.exe", QStringList() << "-NoProfile" << "-ExecutionPolicy" << "Bypass" << "-Command" << script);
     if (!process.waitForStarted(3000) || !process.waitForFinished(20000)) {

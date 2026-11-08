@@ -26,6 +26,37 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
+      - name: Build bundled llama.cpp CPU engine
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git external/llama.cpp
+          cmake -S external/llama.cpp -B external/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_TESTS=OFF
+          cmake --build external/llama.cpp/build --config Release --target llama-server -j 4
+          $server = Get-ChildItem external/llama.cpp/build -Filter llama-server.exe -Recurse | Select-Object -First 1
+          if (-not $server) { throw "llama-server.exe was not produced" }
+          New-Item -ItemType Directory -Force package/runtime/llama | Out-Null
+          Copy-Item "$($server.DirectoryName)/*" package/runtime/llama -Recurse -Force
+          if (-not (Test-Path package/runtime/llama/llama-server.exe)) { throw "Bundled llama-server.exe is missing" }
+      - name: Fetch and verify aria2 downloader
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Invoke-WebRequest "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip" -OutFile aria2.zip
+          $hash = (Get-FileHash aria2.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne "67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288") { throw "aria2 checksum verification failed" }
+          Expand-Archive aria2.zip aria2-extracted -Force
+          $aria = Get-ChildItem aria2-extracted -Filter aria2c.exe -Recurse | Select-Object -First 1
+          if (-not $aria) { throw "aria2c.exe missing from verified archive" }
+          New-Item -ItemType Directory -Force package/download | Out-Null
+          Copy-Item $aria.FullName package/download/aria2c.exe
+      - name: Download Microsoft Visual C++ runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force package/prerequisites | Out-Null
+          Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile package/prerequisites/vc_redist.x64.exe
+          if ((Get-Item package/prerequisites/vc_redist.x64.exe).Length -lt 5MB) { throw "Visual C++ runtime download incomplete" }
       - name: Configure desktop
         shell: pwsh
         run: cmake -S . -B build -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DCMAKE_BUILD_TYPE=Release
@@ -39,14 +70,17 @@ jobs:
           $ErrorActionPreference = "Stop"
           $exe = Get-ChildItem build -Filter DoctorAI.exe -Recurse | Select-Object -First 1
           if (-not $exe) { throw "Desktop executable not found" }
-          New-Item -ItemType Directory -Force package/desktop,package/backend | Out-Null
+          New-Item -ItemType Directory -Force package/desktop,package/backend,package/runtime/java | Out-Null
           Copy-Item "$($exe.DirectoryName)/*" package/desktop -Recurse -Force
           windeployqt --release (Resolve-Path package/desktop/DoctorAI.exe)
           $jar = Get-ChildItem backend/target -Filter *.jar | Where-Object { $_.Name -notlike "original-*" } | Select-Object -First 1
           if (-not $jar) { throw "Spring Boot JAR not found" }
           Copy-Item $jar.FullName package/backend/doctor-ai-backend.jar
-          & "$env:JAVA_HOME/bin/jlink.exe" --add-modules java.base,java.logging,java.naming,java.desktop,java.management,java.instrument,java.security.jgss,java.sql,jdk.crypto.ec --strip-debug --no-man-pages --no-header-files --compress=2 --output package/runtime
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path package/runtime/bin/java.exe)) { throw "Bundled Java runtime creation failed" }
+          & "$env:JAVA_HOME/bin/jlink.exe" --add-modules java.base,java.logging,java.naming,java.desktop,java.management,java.instrument,java.security.jgss,java.sql,jdk.crypto.ec --strip-debug --no-man-pages --no-header-files --compress=2 --output package/runtime/java
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path package/runtime/java/bin/java.exe)) { throw "Bundled Java runtime creation failed" }
+          if (-not (Test-Path package/runtime/llama/llama-server.exe)) { throw "Bundled llama.cpp runtime missing" }
+          if (-not (Test-Path package/download/aria2c.exe)) { throw "Bundled aria2 downloader missing" }
+          if (-not (Test-Path package/prerequisites/vc_redist.x64.exe)) { throw "Visual C++ runtime missing" }
           Copy-Item installer/Start-DoctorAI.ps1 package/Start-DoctorAI.ps1
       - name: Build installer
         shell: pwsh

@@ -53,7 +53,7 @@ jobs:
           $jar = Get-ChildItem -Path backend/target -Filter *.jar | Where-Object { $_.Name -notlike "original-*" } | Select-Object -First 1
           if (-not $exe) { throw "Missing DoctorAI.exe" }
           if (-not $jar) { throw "Missing executable backend JAR" }
-          New-Item -ItemType Directory -Force -Path package/desktop, package/backend, package/media, package/skills, package/runtime | Out-Null
+          New-Item -ItemType Directory -Force -Path package/desktop, package/backend, package/media, package/skills | Out-Null
           Copy-Item "$($exe.DirectoryName)/*" package/desktop -Recurse
           Copy-Item $jar.FullName package/backend/doctor-ai-backend.jar
           Copy-Item media/app.py,media/requirements.txt package/media/

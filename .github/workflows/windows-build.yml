@@ -76,7 +76,7 @@ jobs:
           $jar = Get-ChildItem backend/target -Filter *.jar | Where-Object { $_.Name -notlike "original-*" } | Select-Object -First 1
           if (-not $jar) { throw "Spring Boot JAR not found" }
           Copy-Item $jar.FullName package/backend/doctor-ai-backend.jar
-          & "$env:JAVA_HOME/bin/jlink.exe" --add-modules java.base,java.logging,java.naming,java.desktop,java.management,java.instrument,java.security.jgss,java.sql,jdk.crypto.ec --strip-debug --no-man-pages --no-header-files --compress=2 --output package/runtime/java
+          & "$env:JAVA_HOME/bin/jlink.exe" --add-modules java.base,java.logging,java.naming,java.desktop,java.management,java.instrument,java.security.jgss,java.sql,jdk.crypto.ec,jdk.management --strip-debug --no-man-pages --no-header-files --compress=2 --output package/runtime/java
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path package/runtime/java/bin/java.exe)) { throw "Bundled Java runtime creation failed" }
           if (-not (Test-Path package/runtime/llama/llama-server.exe)) { throw "Bundled llama.cpp runtime missing" }
           if (-not (Test-Path package/download/aria2c.exe)) { throw "Bundled aria2 downloader missing" }

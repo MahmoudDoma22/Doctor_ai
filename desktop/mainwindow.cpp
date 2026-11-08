@@ -7,6 +7,7 @@
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QTimer>
 MainWindow::MainWindow(QWidget *parent):QMainWindow(parent){
  setWindowTitle("Doctor AI");resize(1240,820);setMinimumSize(960,650);
  auto *root=new QWidget;auto *outer=new QHBoxLayout(root);outer->setContentsMargins(0,0,0,0);outer->setSpacing(0);
@@ -48,6 +49,7 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent){
  connect(send_,&QPushButton::clicked,this,[this]{QString message=input_->text().trimmed();if(message.isEmpty()&&attachments_.isEmpty())return;if(models_->count()==0||models_->currentText()=="Gemma 4 not installed"){QMessageBox::warning(this,"Offline model missing","Run the Doctor AI installer again and select the recommended Gemma 4 model.");return;}append("You",message.isEmpty()?"Please analyze the attached files.":message);input_->clear();setBusy(true);api_.sendMessage(message,models_->currentText(),attachments_,performance_->currentData().toString());});
  connect(input_,&QLineEdit::returnPressed,send_,&QPushButton::click);
  api_.checkHealth();api_.fetchModels();
+ auto *healthTimer=new QTimer(this);connect(healthTimer,&QTimer::timeout,this,[this]{api_.checkHealth();});healthTimer->start(5000);
 }
 void MainWindow::append(const QString &speaker,const QString &text){conversation_->append("<b>"+speaker.toHtmlEscaped()+"</b><br>"+text.toHtmlEscaped().replace("\n","<br>")+"<br>");}
 void MainWindow::setBusy(bool busy){send_->setEnabled(!busy);input_->setEnabled(!busy);}

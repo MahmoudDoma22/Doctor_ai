@@ -3,6 +3,7 @@
 mod app;
 mod catalog;
 mod download;
+mod workspace;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {

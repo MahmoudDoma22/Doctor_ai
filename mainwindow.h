@@ -5,6 +5,7 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QPushButton>
+#include <QComboBox>
 #include <QStringList>
 #include "api_client.h"
 
@@ -18,6 +19,8 @@ private:
     QLabel *status_;
     QTextEdit *chatView_;
     QLineEdit *composer_;
+    QComboBox *modelSelector_;
+    QComboBox *moduleSelector_;
     QStringList attachments_;
     QStringList videos_;
     QWidget *makeWelcome();

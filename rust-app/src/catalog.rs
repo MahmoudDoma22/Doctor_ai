@@ -16,22 +16,22 @@ pub const MODELS: &[Model] = &[
     Model {
         id: "gemma4-e2b",
         name: "Gemma 4 E2B · Q4_K_M",
-        description: "الأخف للمحادثة اليومية والأجهزة محدودة الذاكرة.",
+        description: "Lightweight for everyday chat and memory-constrained devices.",
         ram_gb: 8,
         size: "حوالي 3 GB",
         url: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true",
         file_name: "gemma-4-E2B-it-Q4_K_M.gguf",
-        tier: "خفيف",
+        tier: "Lightweight",
     },
     Model {
         id: "gemma4-e4b",
         name: "Gemma 4 E4B · Q4_K_M",
-        description: "جودة أعلى مع استهلاك أكبر للذاكرة؛ مناسب للأجهزة ذات 16 GB RAM فأكثر.",
+        description: "Higher quality with greater memory use; recommended for devices with 16 GB RAM or more.",
         ram_gb: 16,
         size: "حوالي 5 GB",
         url: "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true",
         file_name: "gemma-4-E4B-it-Q4_K_M.gguf",
-        tier: "متوازن",
+        tier: "Balanced",
     },
 ];
 

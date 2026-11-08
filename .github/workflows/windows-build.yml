@@ -40,15 +40,23 @@ jobs:
         run: cargo build --manifest-path rust-app/Cargo.toml --release --target x86_64-pc-windows-msvc
       - name: Test Rust desktop
         run: cargo test --manifest-path rust-app/Cargo.toml --target x86_64-pc-windows-msvc
-      - name: Build Rust inference engine
+      - name: Acquire pinned official Rust inference engine
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          git clone --depth 1 --branch v0.9.5 https://github.com/EricLBuehler/mistral.rs.git external/mistral.rs
-          cargo build --manifest-path external/mistral.rs/Cargo.toml --release --locked -p mistralrs-cli --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { throw "mistral.rs engine build failed" }
-          $engine = "external/mistral.rs/target/x86_64-pc-windows-msvc/release/mistralrs.exe"
-          if (-not (Test-Path $engine)) { throw "mistralrs.exe was not produced at $engine" }
+          New-Item -ItemType Directory -Force external/mistralrs | Out-Null
+          $archive = "external/mistralrs/mistralrs-cpu-windows.zip"
+          $url = "https://github.com/EricLBuehler/mistral.rs/releases/download/v0.9.5/mistralrs-cpu-x86_64-pc-windows-msvc.zip"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = "64d567c299a5c97ef265aa0362649aafb968af47706810df640f74fe8ea4702a"
+          if ($actual -ne $expected) { throw "mistral.rs release checksum mismatch: $actual" }
+          Expand-Archive -Path $archive -DestinationPath external/mistralrs/unpacked -Force
+          $binary = Get-ChildItem external/mistralrs/unpacked -Filter mistralrs.exe -Recurse | Select-Object -First 1
+          if (-not $binary) { throw "Official Windows CPU release did not contain mistralrs.exe" }
+          Copy-Item $binary.FullName external/mistralrs/mistralrs.exe -Force
+          $engine = "external/mistralrs/mistralrs.exe"
+          if ((Get-Item $engine).Length -lt 10MB) { throw "mistralrs.exe is unexpectedly small" }
           & $engine --help *> $null
           if ($LASTEXITCODE -ne 0) { throw "Rust inference engine CLI smoke test failed" }
           & $engine serve --help *> $null
@@ -59,7 +67,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force package/runtime/mistralrs | Out-Null
           Copy-Item rust-app/target/x86_64-pc-windows-msvc/release/doctor-ai.exe package/DoctorAI.exe
-          Copy-Item external/mistral.rs/target/x86_64-pc-windows-msvc/release/mistralrs.exe package/runtime/mistralrs/mistralrs.exe
+          Copy-Item external/mistralrs/mistralrs.exe package/runtime/mistralrs/mistralrs.exe
           $icon = Get-ChildItem rust-app/target -Filter doctor-ai.ico -Recurse | Select-Object -First 1
           if (-not $icon) { throw "Generated executable icon not found" }
           Copy-Item $icon.FullName package/DoctorAI.ico

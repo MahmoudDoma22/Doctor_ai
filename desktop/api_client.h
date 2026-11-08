@@ -9,7 +9,7 @@ public:
     explicit ApiClient(QObject *parent=nullptr);
     void checkHealth();
     void fetchModels();
-    void sendMessage(const QString &message, const QString &model, const QStringList &attachments = {});
+    void sendMessage(const QString &message, const QString &model, const QStringList &attachments = {}, const QString &performanceMode = "balanced");
     void fetchSettings();
     void saveOllamaUrl(const QString &url);
 signals:

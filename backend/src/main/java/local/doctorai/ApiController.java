@@ -14,58 +14,50 @@ import org.springframework.web.client.RestClient;
 public class ApiController {
     private volatile String ollamaBaseUrl;
     private final Path settingsFile = Path.of(System.getProperty("user.home"), ".doctor-ai", "ollama-url.txt");
-
     public ApiController(Environment env) {
-        String configured = env.getProperty("ollama.base-url", "http://127.0.0.1:11434");
-        try { if (Files.exists(settingsFile)) configured = Files.readString(settingsFile).trim(); } catch (Exception ignored) {}
-        ollamaBaseUrl = normalizeUrl(configured);
+        String configured=env.getProperty("ollama.base-url","http://127.0.0.1:11434");
+        try { if(Files.exists(settingsFile)) configured=Files.readString(settingsFile).trim(); } catch(Exception ignored) {}
+        ollamaBaseUrl=normalizeUrl(configured);
     }
-    private RestClient ollama() { return RestClient.builder().baseUrl(ollamaBaseUrl).build(); }
-    private String normalizeUrl(String value) {
-        String url = value == null ? "" : value.trim().replaceAll("/+$", "");
-        URI uri = URI.create(url);
-        if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme())) || uri.getHost() == null || uri.getUserInfo() != null)
-            throw new IllegalArgumentException("Enter a valid HTTP/HTTPS Ollama address.");
+    private RestClient ollama(){return RestClient.builder().baseUrl(ollamaBaseUrl).build();}
+    private String normalizeUrl(String value){
+        String url=value==null?"":value.trim().replaceAll("/+$","");
+        URI uri=URI.create(url);
+        if(!("http".equalsIgnoreCase(uri.getScheme())||"https".equalsIgnoreCase(uri.getScheme()))||uri.getHost()==null||uri.getUserInfo()!=null)throw new IllegalArgumentException("Enter a valid HTTP/HTTPS Ollama address.");
         return url;
     }
-    @GetMapping("/settings") public Map<String,Object> settings(){ return Map.of("ollamaUrl",ollamaBaseUrl); }
+    @GetMapping("/settings") public Map<String,Object> settings(){return Map.of("ollamaUrl",ollamaBaseUrl);}
     @PostMapping("/settings") public Map<String,Object> updateSettings(@RequestBody Map<String,String> body){
-        try {
-            String next=normalizeUrl(body.get("ollamaUrl")); Path parent=settingsFile.getParent(); Files.createDirectories(parent);
-            Files.writeString(settingsFile,next,StandardOpenOption.CREATE,StandardOpenOption.TRUNCATE_EXISTING); ollamaBaseUrl=next;
-            return Map.of("ok",true,"ollamaUrl",ollamaBaseUrl,"message","Settings saved.");
-        } catch(Exception e){ return Map.of("ok",false,"message","Could not save settings: "+e.getMessage()); }
+        try{String next=normalizeUrl(body.get("ollamaUrl"));Files.createDirectories(settingsFile.getParent());Files.writeString(settingsFile,next,StandardOpenOption.CREATE,StandardOpenOption.TRUNCATE_EXISTING);ollamaBaseUrl=next;return Map.of("ok",true,"ollamaUrl",ollamaBaseUrl,"message","Settings saved.");}
+        catch(Exception e){return Map.of("ok",false,"message","Could not save settings: "+e.getMessage());}
     }
     @GetMapping("/health") public Map<String,Object> health(){
-        try { ollama().get().uri("/api/tags").retrieve().body(Map.class); return Map.of("ok",true,"ollama",true,"message","Ollama connected"); }
-        catch(Exception e){ return Map.of("ok",false,"ollama",false,"message","Ollama is not reachable: "+e.getMessage()); }
+        try{ollama().get().uri("/api/tags").retrieve().body(Map.class);return Map.of("ok",true,"ollama",true,"message","Ollama connected");}
+        catch(Exception e){return Map.of("ok",false,"ollama",false,"message","Ollama is not reachable: "+e.getMessage());}
     }
     @GetMapping("/models") public Map<String,Object> models(){
-        try {
-            Map<?,?> response=ollama().get().uri("/api/tags").retrieve().body(Map.class); List<String> names=new ArrayList<>();
-            Object raw=response==null?null:response.get("models");
-            if(raw instanceof List<?> list) for(Object item:list) if(item instanceof Map<?,?> model && model.get("name")!=null) names.add(model.get("name").toString());
-            Collections.sort(names); String active=names.stream().filter(n->n.toLowerCase(Locale.ROOT).contains("gemma")).findFirst().orElse(names.isEmpty()?"":names.get(0));
-            return Map.of("models",names,"active",active,"count",names.size());
-        } catch(Exception e){ return Map.of("models",List.of(),"active","","message","Local model search failed: "+e.getMessage()); }
+        try{Map<?,?> response=ollama().get().uri("/api/tags").retrieve().body(Map.class);List<String> names=new ArrayList<>();Object raw=response==null?null:response.get("models");if(raw instanceof List<?> list)for(Object item:list)if(item instanceof Map<?,?> model&&model.get("name")!=null)names.add(model.get("name").toString());Collections.sort(names);String active=names.stream().filter(n->n.toLowerCase(Locale.ROOT).contains("gemma")).findFirst().orElse(names.isEmpty()?"":names.get(0));return Map.of("models",names,"active",active,"count",names.size());}
+        catch(Exception e){return Map.of("models",List.of(),"active","","message","Local model search failed: "+e.getMessage());}
     }
     @PostMapping("/chat") public Map<String,Object> chat(@RequestBody Map<String,Object> body){
-        String prompt=String.valueOf(body.getOrDefault("message","")).trim();
-        if(prompt.isEmpty()) prompt="Please analyze the attached image(s).";
-        String model=String.valueOf(body.getOrDefault("model",""));
-        if(model.isBlank()) model=String.valueOf(models().get("active"));
-        if(model.isBlank()) return Map.of("message","No Ollama model is installed. Use Search local models or install one with Ollama first.");
-        try {
-            Map<String,Object> message=new HashMap<>(); message.put("role","user"); message.put("content",prompt);
-            Object images=body.get("images");
-            if(images instanceof List<?> list && !list.isEmpty()) message.put("images",list);
-            Map<String,Object> options=Map.of("num_ctx",2048,"num_predict",512,"temperature",0.4);
-            Map<String,Object> payload=new HashMap<>(); payload.put("model",model); payload.put("stream",false);
-            payload.put("keep_alive","5m"); payload.put("options",options); payload.put("messages",List.of(message));
+        String prompt=String.valueOf(body.getOrDefault("message","")).trim();if(prompt.isEmpty())prompt="Please analyze the attached image(s).";
+        String model=String.valueOf(body.getOrDefault("model",""));if(model.isBlank())model=String.valueOf(models().get("active"));
+        if(model.isBlank())return Map.of("message","No Ollama model is installed. Use Search local models or install one with Ollama first.");
+        String mode=String.valueOf(body.getOrDefault("performanceMode","balanced")).toLowerCase(Locale.ROOT);
+        int context,output,batch;
+        switch(mode){
+            case "fast" -> {context=1024;output=256;batch=64;}
+            case "quality" -> {context=4096;output=768;batch=128;}
+            default -> {context=2048;output=512;batch=96;}
+        }
+        try{
+            Map<String,Object> message=new HashMap<>();message.put("role","user");message.put("content",prompt);
+            Object images=body.get("images");if(images instanceof List<?> list&&!list.isEmpty())message.put("images",list);
+            Map<String,Object> options=new HashMap<>();options.put("num_ctx",context);options.put("num_predict",output);options.put("num_batch",batch);options.put("num_thread",8);options.put("temperature",0.4);
+            Map<String,Object> payload=new HashMap<>();payload.put("model",model);payload.put("stream",false);payload.put("keep_alive","5m");payload.put("options",options);payload.put("messages",List.of(message));
             Map<?,?> result=ollama().post().uri("/api/chat").contentType(MediaType.APPLICATION_JSON).body(payload).retrieve().body(Map.class);
-            Object responseMessage=result==null?null:result.get("message");
-            Object answer=responseMessage instanceof Map<?,?> m?m.get("content"):"";
-            return Map.of("answer",String.valueOf(answer),"model",model);
-        } catch(Exception e){ return Map.of("message","Local model request failed: "+e.getMessage()); }
+            Object responseMessage=result==null?null:result.get("message");Object answer=responseMessage instanceof Map<?,?> m?m.get("content"):"";
+            return Map.of("answer",String.valueOf(answer),"model",model,"performanceMode",mode);
+        }catch(Exception e){return Map.of("message","Local model request failed: "+e.getMessage());}
     }
 }

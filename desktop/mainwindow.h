@@ -17,6 +17,7 @@ private:
     QLabel *status_;
     QLabel *modelCount_;
     QComboBox *models_;
+    QComboBox *performance_;
     QTextEdit *conversation_;
     QLineEdit *input_;
     QPushButton *send_;

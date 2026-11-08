@@ -55,6 +55,7 @@ pub fn find_model_path(model: &Model) -> Option<PathBuf> {
         roots.push(home.join(".cache").join("huggingface").join("hub"));
         roots.push(home.join("Downloads").join("DoctorAI"));
         roots.push(home.join("Documents").join("DoctorAI").join("models"));
+        roots.push(home.join("Documents").join("DoctorAI").join("models"));
     }
     for root in roots {
         if let Some(found) = find_named_file(&root, &target, 7) {
@@ -163,22 +164,37 @@ pub fn ensure_model_dir() -> Result<PathBuf, String> {
     Ok(p)
 }
 
+fn contains_executable(root: &Path, executable: &str, depth: usize) -> bool {
+    if root.is_file() {
+        return root.file_name().and_then(|n| n.to_str())
+            .map(|n| n.eq_ignore_ascii_case(executable)).unwrap_or(false);
+    }
+    if depth == 0 || !root.is_dir() { return false; }
+    let Ok(entries) = fs::read_dir(root) else { return false; };
+    entries.flatten().any(|entry| contains_executable(&entry.path(), executable, depth - 1))
+}
+
 pub fn detect_tool(executable: &str, common_paths: &[PathBuf]) -> bool {
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
-            if dir.join(executable).is_file() {
-                return true;
-            }
+            if dir.join(executable).is_file() { return true; }
         }
     }
-    common_paths.iter().any(|p| p.is_file() || p.is_dir())
+    common_paths.iter().any(|p| {
+        if executable == "ComfyUI.exe" && p.is_dir() {
+            return p.join("main.py").is_file()
+                && (p.join("python_embeded/python.exe").is_file()
+                    || p.join(".venv/Scripts/python.exe").is_file());
+        }
+        contains_executable(p, executable, 4)
+    })
 }
 
 pub fn installed_tools() -> Vec<(&'static str, bool)> {
     let program_files = std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_default();
     let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default();
     vec![
-        ("ComfyUI", detect_tool("ComfyUI.exe", &[local.join("Programs/ComfyUI"), program_files.join("ComfyUI")])),
+        ("ComfyUI", detect_tool("ComfyUI.exe", &[local.join("Programs/ComfyUI"), program_files.join("ComfyUI"), PathBuf::from("C:/ComfyUI_windows_portable")])),
         ("Blender", detect_tool("blender.exe", &[program_files.join("Blender Foundation/Blender"), local.join("Programs/Blender")])),
         ("Krita", detect_tool("krita.exe", &[program_files.join("Krita (x64)/bin/krita.exe")])),
         ("Whisper.cpp", detect_tool("whisper-cli.exe", &[local.join("Programs/whisper.cpp/whisper-cli.exe")])),

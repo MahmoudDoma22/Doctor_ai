@@ -58,6 +58,13 @@ jobs:
           Copy-Item $jar.FullName package/backend/doctor-ai-backend.jar
           Copy-Item media/app.py,media/requirements.txt package/media/
           Copy-Item skills/* package/skills/ -Recurse -Force
+          # Bundle the Python runtime and the media service dependencies so video frame extraction
+          # works after installation without requiring a system Python installation.
+          $pythonRoot = python -c "import sys; print(sys.prefix)"
+          New-Item -ItemType Directory -Force -Path package/python, package/media/site-packages | Out-Null
+          Copy-Item "$pythonRoot/*" package/python/ -Recurse -Force
+          python -m pip install --disable-pip-version-check --no-warn-script-location --target package/media/site-packages -r media/requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw "Could not package Python media dependencies" }
           $jlink = Join-Path $env:JAVA_HOME "bin\jlink.exe"
           & $jlink --add-modules ALL-MODULE-PATH --strip-debug --no-man-pages --no-header-files --compress=2 --output package/runtime
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path package/runtime/bin/java.exe)) { throw "Bundled Java runtime creation failed" }
@@ -69,9 +76,19 @@ jobs:
           $isccCandidates = @(
             "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
             "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
-            "${env:ChocolateyInstall}\lib\innosetup\tools\ISCC.exe"
+            "${env:ChocolateyInstall}\lib\innosetup\tools\ISCC.exe",
+            "${env:ChocolateyInstall}\bin\ISCC.exe"
           )
           $iscc = $isccCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $iscc) {
+            $roots = @("${env:ProgramFiles(x86)}", "$env:ProgramFiles", "${env:ChocolateyInstall}\lib\innosetup")
+            foreach ($root in $roots) {
+              if ($root -and (Test-Path $root)) {
+                $found = Get-ChildItem -Path $root -Filter ISCC.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($found) { $iscc = $found.FullName; break }
+              }
+            }
+          }
           if (-not $iscc) {
             $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
             if ($isccCommand) { $iscc = $isccCommand.Source }

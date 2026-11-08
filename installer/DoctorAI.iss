@@ -6,14 +6,14 @@ AppId={{6A2D7D41-9F51-4C86-AC21-2C0B65A8F201}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=Doctor AI
-DefaultDirName={autopf}\Doctor AI
+DefaultDirName={localappdata}\Programs\Doctor AI
 DefaultGroupName={#AppName}
 OutputDir=..\installer-output
 OutputBaseFilename=DoctorAI-Setup
 SetupIconFile=..\package\DoctorAI.ico
 UninstallDisplayIcon={app}\{#AppExeName}
-ArchitecturesInstallIn64BitMode=x64
-PrivilegesRequired=admin
+ArchitecturesInstallIn64BitMode=x64compatible
+PrivilegesRequired=lowest
 WizardStyle=modern
 DisableWelcomePage=no
 Compression=lzma2
@@ -23,8 +23,8 @@ DisableProgramGroupPage=yes
 Source: "..\package\DoctorAI.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\package\runtime\mistralrs\mistralrs.exe"; DestDir: "{app}\runtime\mistralrs"; Flags: ignoreversion
 [Icons]
-Name: "{autoprograms}\Doctor AI"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
-Name: "{autodesktop}\Doctor AI"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{userprograms}\Doctor AI"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
+Name: "{userdesktop}\Doctor AI"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 [Tasks]
 Name: "desktopicon"; Description: "إنشاء اختصار على سطح المكتب"; GroupDescription: "اختصارات إضافية:"
 [Run]

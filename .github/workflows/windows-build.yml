@@ -25,7 +25,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $legacy = @("backend", "desktop", "CMakeLists.txt", "installer/Install-Model.ps1", "installer/Start-DoctorAI.ps1", "installer/Start-DoctorAI.vbs")
           foreach ($path in $legacy) { if (Test-Path $path) { throw "Legacy runtime component still exists: $path" } }
-          $hits = Get-ChildItem -Recurse -File -Exclude "*.ico" | Select-String -Pattern "ollama" -SimpleMatch -CaseSensitive:$false
+          $hits = Get-ChildItem -Recurse -File -Exclude "*.ico" | Select-String -Pattern ("olla" + "ma") -SimpleMatch -CaseSensitive:$false
           if ($hits) { throw "Forbidden legacy model-manager reference found: $($hits[0].Path)" }
       - name: Format and parse Rust sources
         run: |

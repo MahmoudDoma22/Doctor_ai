@@ -14,7 +14,9 @@ pub fn model_dir() -> PathBuf {
 }
 pub fn model_path(model:&Model)->PathBuf { model_dir().join(model.file_name) }
 pub fn present(model:&Model)->bool { model_path(model).is_file() }
-pub fn recommended(ram:u64)->usize { if ram>=16 {1} else {0} }
+pub fn detect_available_ram_gb()->u64 { let mut s=sysinfo::System::new();s.refresh_memory();(s.available_memory()/1024/1024/1024).max(1) }
+pub fn detect_free_disk_gb()->u64 { let d=sysinfo::Disks::new_with_refreshed_list();d.list().iter().map(|x|x.available_space()).max().unwrap_or(0)/1024/1024/1024 }
+pub fn recommended(ram:u64,available:u64)->usize { if ram>=16 && available>=7 {1} else {0} }
 pub fn detect_ram_gb()->u64 { let mut s=sysinfo::System::new();s.refresh_memory();(s.total_memory()/1024/1024/1024).max(1) }
 pub fn detect_cpu()->String { let mut s=sysinfo::System::new_all();s.refresh_cpu_all();format!("{} logical threads",s.cpus().len()) }
 pub fn ensure_model_dir()->Result<PathBuf,String>{let p=model_dir();fs::create_dir_all(&p).map_err(|e|format!("{}: {e}",p.display()))?;Ok(p)}

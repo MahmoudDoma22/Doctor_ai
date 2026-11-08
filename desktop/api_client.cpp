@@ -5,6 +5,9 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QUrl>
+#include <QFile>
+#include <QFileInfo>
+#include <QMimeDatabase>
 
 ApiClient::ApiClient(QObject *parent):QObject(parent){}
 
@@ -34,11 +37,35 @@ void ApiClient::fetchModels(){
     });
 }
 
-void ApiClient::sendMessage(const QString &message,const QString &model){
-    QJsonObject body{{"message",message},{"model",model}};
+void ApiClient::sendMessage(const QString &message,const QString &model,const QStringList &attachments){
+    QString prompt=message;
+    QJsonArray images;
+    QMimeDatabase mimeDb;
+    for(const QString &path:attachments){
+        QFileInfo info(path);
+        const QString suffix=info.suffix().toLower();
+        QFile file(path);
+        if(!file.open(QIODevice::ReadOnly)){ emit failed("Cannot read attachment: "+info.fileName()); return; }
+        if(info.size()>15*1024*1024){ emit failed("Attachment is larger than 15 MB: "+info.fileName()); return; }
+        const QByteArray data=file.readAll();
+        const QString mime=mimeDb.mimeTypeForFile(info).name();
+        if(mime.startsWith("image/")){
+            images.append(QString::fromLatin1(data.toBase64()));
+        } else if(suffix=="txt" || suffix=="md" || suffix=="csv" || suffix=="log"){
+            if(data.size()>2*1024*1024){ emit failed("Text attachment is larger than 2 MB: "+info.fileName()); return; }
+            prompt += "\n\n[Attached file: "+info.fileName()+"]\n"+QString::fromUtf8(data);
+        } else if(suffix=="mp4" || suffix=="mov" || suffix=="avi" || suffix=="mkv" || suffix=="webm"){
+            emit failed("Video attachment selected: "+info.fileName()+". Video frame extraction is not enabled in this build yet; it will be added with the video engine.");
+            return;
+        } else {
+            emit failed("Unsupported file type: "+info.fileName()+". Currently supported: images, TXT, MD, CSV and LOG.");
+            return;
+        }
+    }
+    QJsonObject body{{"message",prompt},{"model",model},{"images",images}};
     QNetworkRequest req(QUrl(baseUrl_+"/api/chat"));
     req.setHeader(QNetworkRequest::ContentTypeHeader,"application/json");
-    req.setTransferTimeout(180000);
+    req.setTransferTimeout(300000);
     auto *r=network_.post(req,QJsonDocument(body).toJson(QJsonDocument::Compact));
     connect(r,&QNetworkReply::finished,this,[this,r]{
         const auto doc=QJsonDocument::fromJson(r->readAll());

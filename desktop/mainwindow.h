@@ -5,6 +5,7 @@
 #include <QLineEdit>
 #include <QTextEdit>
 #include <QPushButton>
+#include <QStringList>
 #include "api_client.h"
 
 class MainWindow : public QMainWindow {
@@ -19,8 +20,12 @@ private:
     QTextEdit *conversation_;
     QLineEdit *input_;
     QPushButton *send_;
+    QLabel *attachmentLabel_;
+    QStringList attachments_;
     void append(const QString &speaker,const QString &text);
     void setBusy(bool busy);
     void openSettings();
     void searchLocalModels();
+    void addAttachments();
+    void clearAttachments();
 };

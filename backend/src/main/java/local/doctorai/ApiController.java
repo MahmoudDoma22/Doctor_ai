@@ -15,6 +15,7 @@ public class ApiController {
   private final SkillService skills;
   private final Path dbPath;
   private final String mediaBase;
+
   public ApiController(OllamaService ollama, SkillService skills,
       @Value("${doctorai.data-dir}") String dataDir,
       @Value("${media.base-url}") String mediaBase) throws Exception {
@@ -28,51 +29,65 @@ public class ApiController {
 
   @GetMapping("/health")
   public Map<String,Object> health() {
-    try { Map<?,?> tags=ollama.tags(); return Map.of("ok",true,"ollama",true,"model",ollama.model(),"models",tags.get("models") == null ? List.of() : tags.get("models")); }
-    catch(Exception e) { return Map.of("ok",false,"ollama",false,"model",ollama.model(),"error",e.getMessage()==null?"Ollama unavailable":e.getMessage()); }
+    try {
+      List<String> models=ollama.modelNames();
+      String active=ollama.model();
+      if (active.isBlank() && !models.isEmpty()) active=ollama.selectModel(models.stream().filter(n -> n.toLowerCase(Locale.ROOT).startsWith("gemma")).findFirst().orElse(models.get(0)));
+      return Map.of("ok",!models.isEmpty(),"ollama",true,"model",active,"models",models);
+    } catch(Exception e) {
+      return Map.of("ok",false,"ollama",false,"model",ollama.model(),"models",List.of(),"error",e.getMessage()==null?"Ollama unavailable":e.getMessage());
+    }
   }
-  @GetMapping("/models") public Map<?,?> models() { return ollama.tags(); }
+
+  @GetMapping("/models")
+  public Map<String,Object> models() {
+    List<String> names=ollama.modelNames();
+    String active=ollama.model();
+    if ((active.isBlank() || !names.contains(active)) && !names.isEmpty())
+      active=ollama.selectModel(names.stream().filter(n -> n.toLowerCase(Locale.ROOT).startsWith("gemma")).findFirst().orElse(names.get(0)));
+    return Map.of("models",names,"activeModel",active);
+  }
+
+  @PostMapping("/models/select")
+  public Map<String,String> selectModel(@RequestBody Map<String,String> body) {
+    return Map.of("activeModel",ollama.selectModel(body.get("model")));
+  }
 
   @PostMapping("/chat")
   public Map<String,String> chat(@RequestBody Map<String,Object> body) throws Exception {
     String message=String.valueOf(body.getOrDefault("message",""));
+    String module=String.valueOf(body.getOrDefault("module","general")).toLowerCase(Locale.ROOT);
     List<String> images = new ArrayList<>();
     Object raw=body.get("images");
     if(raw instanceof List<?> list) for(Object item:list) if(item instanceof String s && !s.isBlank()) images.add(s);
-    String system="You are Doctor AI, a concise, accurate, helpful assistant. Be direct and to the point. "
-      +"For medical questions, distinguish evidence from uncertainty, encourage appropriate clinical judgment, "
-      +"and never claim to replace a qualified clinician. Prefer structured concise answers."
-      + skills.prompt();
-    // Video is sampled into still frames by the local Python media service.
     Object rawVideos = body.get("videos");
     if (rawVideos instanceof List<?> videos) {
       RestClient media = RestClient.builder().baseUrl(mediaBase).build();
       for (Object item : videos) {
         if (!(item instanceof String video64) || video64.isBlank()) continue;
-        try {
-          Map<?,?> extracted = media.post().uri("/extract-frames")
-            .contentType(MediaType.APPLICATION_JSON)
-            .body(Map.of("video_base64", video64, "max_frames", 8))
-            .retrieve().body(Map.class);
-          Object frameList = extracted == null ? null : extracted.get("frames");
-          if (frameList instanceof List<?> frames) {
-            for (Object frame : frames) if (frame instanceof String frame64) images.add(frame64);
-          }
-        } catch (Exception mediaError) {
-          throw new IllegalStateException("Video processing failed. Is the Python media service running? " + mediaError.getMessage(), mediaError);
-        }
+        Map<?,?> extracted = media.post().uri("/extract-frames").contentType(MediaType.APPLICATION_JSON)
+          .body(Map.of("video_base64", video64, "max_frames", 8)).retrieve().body(Map.class);
+        Object frameList = extracted == null ? null : extracted.get("frames");
+        if (frameList instanceof List<?> frames)
+          for (Object frame : frames) if (frame instanceof String frame64) images.add(frame64);
       }
     }
+    String system="You are Doctor AI, a concise, accurate, helpful assistant. Be direct. "
+      +"For medical questions, distinguish evidence from uncertainty, encourage appropriate clinical judgment, "
+      +"and never claim to replace a qualified clinician. Prefer structured concise answers."
+      + skills.prompt(module);
     String answer=ollama.chat(message,images,system);
-    saveTurn("user",message.isBlank()?"[image attachment]":message);
+    saveTurn("user",message.isBlank()?"[media attachment]":message);
     saveTurn("assistant",answer);
-    return Map.of("answer",answer,"model",ollama.model());
+    return Map.of("answer",answer,"model",ollama.model(),"module",module);
   }
+
   private void saveTurn(String role,String content) {
     try(Connection c=connection(); PreparedStatement p=c.prepareStatement("INSERT INTO turns(role,content) VALUES(?,?)")) {
       p.setString(1,role); p.setString(2,content); p.executeUpdate();
     } catch(Exception ignored) {}
   }
+
   @GetMapping("/history")
   public List<Map<String,Object>> history() throws Exception {
     List<Map<String,Object>> out=new ArrayList<>();
@@ -81,10 +96,13 @@ public class ApiController {
     }
     return out;
   }
-  @GetMapping("/skills") public Map<String,Object> getSkills() { return Map.of("skills",skills.names()); }
+  @GetMapping("/skills")
+  public Map<String,Object> getSkills(@RequestParam(defaultValue="general") String module) { return Map.of("module",module,"skills",skills.names(module)); }
+
   @PostMapping("/skills")
   public Map<String,String> saveSkill(@RequestBody Map<String,String> body) throws Exception {
-    skills.save(body.getOrDefault("name","new-skill"),body.getOrDefault("content",""));
-    return Map.of("status","saved");
+    String module=body.getOrDefault("module","general");
+    skills.save(module,body.getOrDefault("name","new-skill"),body.getOrDefault("content",""));
+    return Map.of("status","saved","module",module);
   }
 }

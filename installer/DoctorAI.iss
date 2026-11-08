@@ -4,7 +4,7 @@
 #define AppExeName "DoctorAI.exe"
 
 [Setup]
-AppId={D8A4F5B2-8B1E-4B1B-8A32-0D0C0A100001}
+AppId={{D8A4F5B2-8B1E-4B1B-8A32-0D0C0A100001}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
@@ -31,4 +31,4 @@ Name: "{autodesktop}\Doctor AI"; Filename: "{app}\desktop\{#AppExeName}"; Tasks:
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Start-DoctorAI.ps1"" -CheckOnly"; Flags: postinstall skipifsilent runhidden; Description: "Check Doctor AI prerequisites"
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\Start-DoctorAI.ps1"""; Flags: postinstall skipifsilent; Description: "Start Doctor AI"

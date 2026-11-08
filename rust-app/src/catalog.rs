@@ -132,8 +132,12 @@ pub fn detect_available_ram_gb() -> u64 {
 }
 
 pub fn detect_free_disk_gb() -> u64 {
-    let d = sysinfo::Disks::new_with_refreshed_list();
-    d.list().iter().map(|x| x.available_space()).max().unwrap_or(0) / 1024 / 1024 / 1024
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let home = UserDirs::new().map(|u| u.home_dir().to_path_buf());
+    let disk = home.as_ref()
+        .and_then(|h| disks.list().iter().filter(|d| h.starts_with(d.mount_point())).max_by_key(|d| d.mount_point().as_os_str().len()))
+        .or_else(|| disks.list().iter().max_by_key(|d| d.available_space()));
+    disk.map(|d| d.available_space() / 1024 / 1024 / 1024).unwrap_or(0)
 }
 
 pub fn recommended(ram: u64, available: u64) -> usize {
@@ -159,7 +163,7 @@ pub fn ensure_model_dir() -> Result<PathBuf, String> {
     Ok(p)
 }
 
-pub fn detect_tool(name: &str, executable: &str, common_paths: &[PathBuf]) -> bool {
+pub fn detect_tool(executable: &str, common_paths: &[PathBuf]) -> bool {
     if let Some(path) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&path) {
             if dir.join(executable).is_file() {
@@ -174,12 +178,12 @@ pub fn installed_tools() -> Vec<(&'static str, bool)> {
     let program_files = std::env::var_os("ProgramFiles").map(PathBuf::from).unwrap_or_default();
     let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_default();
     vec![
-        ("ComfyUI", detect_tool("ComfyUI", "ComfyUI.exe", &[local.join("Programs/ComfyUI"), program_files.join("ComfyUI")])),
-        ("Blender", detect_tool("Blender", "blender.exe", &[program_files.join("Blender Foundation/Blender"), local.join("Programs/Blender")])),
-        ("Krita", detect_tool("Krita", "krita.exe", &[program_files.join("Krita (x64)/bin/krita.exe")])),
-        ("Whisper.cpp", detect_tool("Whisper.cpp", "whisper-cli.exe", &[local.join("Programs/whisper.cpp/whisper-cli.exe")])),
-        ("Piper", detect_tool("Piper", "piper.exe", &[local.join("Programs/Piper/piper.exe")])),
-        ("FFmpeg", detect_tool("FFmpeg", "ffmpeg.exe", &[program_files.join("ffmpeg/bin/ffmpeg.exe")])),
+        ("ComfyUI", detect_tool("ComfyUI.exe", &[local.join("Programs/ComfyUI"), program_files.join("ComfyUI")])),
+        ("Blender", detect_tool("blender.exe", &[program_files.join("Blender Foundation/Blender"), local.join("Programs/Blender")])),
+        ("Krita", detect_tool("krita.exe", &[program_files.join("Krita (x64)/bin/krita.exe")])),
+        ("Whisper.cpp", detect_tool("whisper-cli.exe", &[local.join("Programs/whisper.cpp/whisper-cli.exe")])),
+        ("Piper", detect_tool("piper.exe", &[local.join("Programs/Piper/piper.exe")])),
+        ("FFmpeg", detect_tool("ffmpeg.exe", &[program_files.join("ffmpeg/bin/ffmpeg.exe")])),
     ]
 }
 

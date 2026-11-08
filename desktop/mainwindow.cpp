@@ -7,6 +7,7 @@
 #include <QFormLayout>
 #include <QDialogButtonBox>
 #include <QRegularExpression>
+#include <QUrl>
 
 MainWindow::MainWindow(QWidget *parent):QMainWindow(parent){
     setWindowTitle("Doctor AI");

@@ -23,6 +23,10 @@ impl DoctorApp{
   self.installed_models.iter().any(|p|p.file_name().and_then(|n|n.to_str()).map(|n|n.eq_ignore_ascii_case(m.file_name)).unwrap_or(false))
  }
  fn start_model_download(&mut self){
+  let required_disk=if self.selected==1{6}else{4};
+  let free_disk=catalog::detect_free_disk_gb();
+  self.free_disk=free_disk;
+  if free_disk<required_disk{self.status=format!("المساحة غير كافية: المتاح {} GB والمطلوب نحو {} GB على قرص مجلد الموديلات",free_disk,required_disk);return;}
   let m=&MODELS[self.selected];self.cancel.store(false,Ordering::Relaxed);self.downloading=true;self.download_progress=0.0;
   self.download_label=format!("تنزيل {}",m.name);self.status="جاري تنزيل الموديل — الاستكمال مدعوم بعد إغلاق التطبيق".into();
   download::start_download(m.url.into(),catalog::model_path(m),self.cancel.clone(),self.download_tx.clone());

@@ -140,7 +140,28 @@ QWidget *MainWindow::makeChat() {
     connect(composer_, &QLineEdit::returnPressed, this, &MainWindow::send);
     connect(newChat, &QPushButton::clicked, this, [this]() { chatView_->clear(); attachments_.clear(); videos_.clear(); });
     connect(skills, &QPushButton::clicked, this, [this]() {
-        QMessageBox::information(this, "Skills", "Skills are managed as Markdown files in the skills folder.\nAdd a .md file and restart the Java service. A full in-app skill editor is planned for the next iteration.");
+        QDialog dialog(this);
+        dialog.setWindowTitle("Create a Doctor AI skill");
+        dialog.setMinimumSize(560, 440);
+        auto *form = new QFormLayout(&dialog);
+        auto *name = new QLineEdit("clinical-guidance");
+        name->setPlaceholderText("e.g. pediatric-emergency");
+        auto *content = new QTextEdit;
+        content->setPlaceholderText("Write the instructions for this skill in Markdown...");
+        form->addRow("Skill name", name);
+        form->addRow("Instructions", content);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel);
+        form->addRow(buttons);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+            if (name->text().trimmed().isEmpty() || content->toPlainText().trimmed().isEmpty()) {
+                QMessageBox::warning(&dialog, "Missing information", "Enter both a skill name and its instructions.");
+                return;
+            }
+            api_.saveSkill(name->text().trimmed(), content->toPlainText());
+            dialog.accept();
+        });
+        dialog.exec();
     });
     return w;
 }

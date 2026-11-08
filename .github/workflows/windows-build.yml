@@ -57,7 +57,7 @@ jobs:
           Copy-Item "$($exe.DirectoryName)/*" package/desktop -Recurse
           Copy-Item $jar.FullName package/backend/doctor-ai-backend.jar
           Copy-Item media/app.py,media/requirements.txt package/media/
-          Copy-Item skills/*.md package/skills/
+          Copy-Item skills/* package/skills/ -Recurse -Force
           $jlink = Join-Path $env:JAVA_HOME "bin\jlink.exe"
           & $jlink --add-modules ALL-MODULE-PATH --strip-debug --no-man-pages --no-header-files --compress=2 --output package/runtime
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path package/runtime/bin/java.exe)) { throw "Bundled Java runtime creation failed" }

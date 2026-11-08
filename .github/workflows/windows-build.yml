@@ -92,8 +92,13 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $testDir = Join-Path $env:RUNNER_TEMP "DoctorAI-Install-Test"
-          & installer-output/DoctorAI-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$testDir"
-          if ($LASTEXITCODE -ne 0) { throw "Silent installer smoke test failed" }
+          $installLog = Join-Path $env:RUNNER_TEMP "DoctorAI-Install.log"
+          & installer-output/DoctorAI-Setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/LOG=$installLog" "/DIR=$testDir"
+          $installExit = $LASTEXITCODE
+          if ($installExit -ne 0) {
+            if (Test-Path $installLog) { Get-Content $installLog -Tail 80 }
+            throw "Silent installer smoke test failed with exit code $installExit"
+          }
           if (-not (Test-Path (Join-Path $testDir "DoctorAI.exe"))) { throw "Installed desktop executable is missing" }
           if (-not (Test-Path (Join-Path $testDir "runtime/mistralrs/mistralrs.exe"))) { throw "Installed Rust inference engine is missing" }
           $uninstaller = Join-Path $testDir "unins000.exe"

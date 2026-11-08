@@ -11,6 +11,7 @@
 #include <QFrame>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QProcess>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("Doctor AI");
@@ -94,10 +95,13 @@ QWidget *MainWindow::makeConnect() {
     connectBtn->setFixedSize(190, 46);
     auto *continueBtn = new QPushButton("Continue to chat");
     continueBtn->setFixedSize(190, 46);
+    auto *scanBtn = new QPushButton("Scan this PC");
+    scanBtn->setFixedSize(150, 46);
     auto *center = new QHBoxLayout; center->addStretch(); center->addWidget(url); center->addStretch();
     layout->addSpacing(24); layout->addLayout(center); layout->addWidget(model, 0, Qt::AlignCenter);
-    auto *buttons = new QHBoxLayout; buttons->addStretch(); buttons->addWidget(connectBtn); buttons->addWidget(continueBtn); buttons->addStretch();
+    auto *buttons = new QHBoxLayout; buttons->addStretch(); buttons->addWidget(connectBtn); buttons->addWidget(continueBtn); buttons->addWidget(scanBtn); buttons->addStretch();
     layout->addLayout(buttons); layout->addStretch();
+    connect(scanBtn, &QPushButton::clicked, this, &MainWindow::scanLocalSystem);
     connect(connectBtn, &QPushButton::clicked, this, [this, url]() { api_.setBaseUrl(url->text()); api_.checkHealth(); });
     connect(continueBtn, &QPushButton::clicked, this, [this, url]() {
         api_.setBaseUrl(url->text()); pages_->setCurrentIndex(2); api_.checkHealth();
@@ -188,6 +192,63 @@ void MainWindow::send() {
     attachments_.clear();
     videos_.clear();
 }
+
+void MainWindow::scanLocalSystem() {
+    const QString script = QString::fromUtf8(R"PS(
+$ErrorActionPreference = 'Continue'
+Write-Output '=== Doctor AI local system scan ==='
+Write-Output ('Computer: ' + $env:COMPUTERNAME)
+Write-Output ('Windows: ' + (Get-CimInstance Win32_OperatingSystem).Caption)
+Write-Output ''
+Write-Output '--- Java ---'
+$java = Join-Path $PSScriptRoot 'runtime\bin\java.exe'
+if (Test-Path $java) { Write-Output ('Bundled Java: ' + $java) }
+elseif (Get-Command java -ErrorAction SilentlyContinue) { java -version 2>&1 }
+else { Write-Output 'Java not found in PATH (installer should provide bundled Java).' }
+Write-Output ''
+Write-Output '--- Ollama ---'
+$cmd = Get-Command ollama -ErrorAction SilentlyContinue
+if ($cmd) { Write-Output ('Ollama command: ' + $cmd.Source) }
+else { Write-Output 'Ollama command not found in PATH.' }
+$paths = @("$env:LOCALAPPDATA\Programs\Ollama\ollama.exe", "$env:ProgramFiles\Ollama\ollama.exe")
+foreach ($p in $paths) { if (Test-Path $p) { Write-Output ('Ollama file: ' + $p) } }
+try {
+  $tags = Invoke-RestMethod 'http://127.0.0.1:11434/api/tags' -TimeoutSec 3
+  Write-Output 'Ollama API: RUNNING'
+  if ($tags.models) {
+    Write-Output 'Installed models:'
+    $tags.models | ForEach-Object { Write-Output (' - ' + $_.name) }
+    $gemma = $tags.models | Where-Object { $_.name -match '(?i)^gemma' } | Select-Object -First 1
+    if ($gemma) { Write-Output ('Selected Gemma model: ' + $gemma.name) }
+    else { Write-Output 'No Gemma model found in Ollama.' }
+  }
+} catch { Write-Output 'Ollama API: NOT RESPONDING on 127.0.0.1:11434' }
+Write-Output ''
+Write-Output '--- Local ports ---'
+foreach ($port in @(8787,11434,8788)) {
+  $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+  Write-Output ("Port " + $port + ": " + $(if ($listener) { 'LISTENING' } else { 'not listening' }))
+}
+)PS");
+    QProcess process;
+    process.start("powershell.exe", QStringList() << "-NoProfile" << "-ExecutionPolicy" << "Bypass" << "-Command" << script);
+    if (!process.waitForStarted(3000) || !process.waitForFinished(20000)) {
+        QMessageBox::warning(this, "Local system scan", "Could not complete the local scan. Check that Windows PowerShell is available.");
+        process.kill();
+        return;
+    }
+    QString output = QString::fromLocal8Bit(process.readAllStandardOutput());
+    const QString errors = QString::fromLocal8Bit(process.readAllStandardError());
+    if (output.trimmed().isEmpty()) output = errors.isEmpty() ? "No diagnostic output was returned." : errors;
+    QMessageBox result(this);
+    result.setWindowTitle("Doctor AI - Local system scan");
+    result.setIcon(QMessageBox::Information);
+    result.setText("Scan completed on this PC. No files are uploaded.");
+    result.setDetailedText(output + (errors.isEmpty() ? QString() : "\nPowerShell details:\n" + errors));
+    result.setStandardButtons(QMessageBox::Ok);
+    result.exec();
+}
+
 void MainWindow::applyTheme() {
     setStyleSheet(R"(
       QMainWindow,QWidget { background:#0b1422;color:#edf4ff;font-family:"Segoe UI";font-size:13px; }

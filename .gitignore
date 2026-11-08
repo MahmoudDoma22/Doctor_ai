@@ -1,0 +1,7 @@
+**/build/
+**/target/
+**/.venv/
+**/__pycache__/
+backend/data/
+*.user
+*.log

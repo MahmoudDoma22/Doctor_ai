@@ -48,21 +48,20 @@ jobs:
           windeployqt --release $exe.FullName
 
       - name: Build Java backend
-        run: mvn -DskipTests package
+        run: mvn -f backend/pom.xml -DskipTests package
 
-      - name: Verify outputs
+      - name: Verify and package outputs
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Path build -Filter DoctorAI.exe -Recurse | Select-Object -First 1
-          $jar = Get-ChildItem -Path target -Filter *.jar | Where-Object { $_.Name -notlike "original-*" } | Select-Object -First 1
+          $jar = Get-ChildItem -Path backend/target -Filter *.jar | Where-Object { $_.Name -notlike "original-*" } | Select-Object -First 1
           if (-not $exe) { throw "Missing DoctorAI.exe" }
           if (-not $jar) { throw "Missing executable backend JAR" }
-          New-Item -ItemType Directory -Force -Path package | Out-Null
-          Copy-Item $exe.DirectoryName package/desktop -Recurse
-          New-Item -ItemType Directory -Force -Path package/backend | Out-Null
+          New-Item -ItemType Directory -Force -Path package/desktop, package/backend, package/media, package/skills | Out-Null
+          Copy-Item "$($exe.DirectoryName)/*" package/desktop -Recurse
           Copy-Item $jar.FullName package/backend/doctor-ai-backend.jar
-          Copy-Item app.py,requirements.txt package/
-          Copy-Item concise-responses.md package/ -ErrorAction SilentlyContinue
+          Copy-Item media/app.py,media/requirements.txt package/media/
+          Copy-Item skills/*.md package/skills/
           Compress-Archive -Path package/* -DestinationPath DoctorAI-Windows-Portable.zip -Force
 
       - name: Upload Windows package

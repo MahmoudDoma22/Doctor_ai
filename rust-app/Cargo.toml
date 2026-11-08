@@ -17,7 +17,7 @@ futures-util = "0.3"
 open = "5"
 
 [build-dependencies]
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["ico"] }
 winres = "0.1"
 
 [profile.release]

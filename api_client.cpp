@@ -16,15 +16,46 @@ void ApiClient::checkHealth() {
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto body = reply->readAll();
         const bool ok = reply->error() == QNetworkReply::NoError;
-        const QString message = ok ? QString::fromUtf8(body) : reply->errorString();
-        emit healthResult(ok, message);
+        emit healthResult(ok, ok ? QString::fromUtf8(body) : reply->errorString());
         reply->deleteLater();
     });
 }
 
-void ApiClient::sendMessage(const QString &message, const QStringList &imagePaths, const QStringList &videoPaths) {
+void ApiClient::refreshModels() {
+    QNetworkRequest req(QUrl(baseUrl_ + "/api/models"));
+    req.setTransferTimeout(10000);
+    auto *reply = network_.get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto body = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) {
+            emit requestError("Could not list local models: " + reply->errorString());
+        } else {
+            const auto obj = QJsonDocument::fromJson(body).object();
+            QStringList names;
+            for (const auto &v : obj.value("models").toArray()) names << v.toString();
+            emit modelsResult(names, obj.value("activeModel").toString());
+        }
+        reply->deleteLater();
+    });
+}
+
+void ApiClient::selectModel(const QString &model) {
+    QJsonObject payload; payload["model"] = model;
+    QNetworkRequest req(QUrl(baseUrl_ + "/api/models/select"));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    auto *reply = network_.post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const auto body = reply->readAll();
+        if (reply->error() != QNetworkReply::NoError) emit modelSelected(false, reply->errorString() + "\n" + QString::fromUtf8(body));
+        else emit modelSelected(true, QJsonDocument::fromJson(body).object().value("activeModel").toString());
+        reply->deleteLater();
+    });
+}
+
+void ApiClient::sendMessage(const QString &message, const QStringList &imagePaths, const QStringList &videoPaths, const QString &module) {
     QJsonObject payload;
     payload["message"] = message;
+    payload["module"] = module;
     QJsonArray images;
     for (const QString &path : imagePaths) {
         QFile file(path);
@@ -45,26 +76,20 @@ void ApiClient::sendMessage(const QString &message, const QStringList &imagePath
     auto *reply = network_.post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto body = reply->readAll();
-        if (reply->error() != QNetworkReply::NoError) {
-            emit requestError(reply->errorString() + "\n" + QString::fromUtf8(body));
-        } else {
-            const auto doc = QJsonDocument::fromJson(body);
-            emit chatResult(doc.object().value("answer").toString("No answer returned."));
-        }
+        if (reply->error() != QNetworkReply::NoError) emit requestError(reply->errorString() + "\n" + QString::fromUtf8(body));
+        else emit chatResult(QJsonDocument::fromJson(body).object().value("answer").toString("No answer returned."));
         reply->deleteLater();
     });
 }
 
-void ApiClient::saveSkill(const QString &name, const QString &content) {
-    QJsonObject payload;
-    payload["name"] = name;
-    payload["content"] = content;
+void ApiClient::saveSkill(const QString &module, const QString &name, const QString &content) {
+    QJsonObject payload; payload["module"] = module; payload["name"] = name; payload["content"] = content;
     QNetworkRequest req(QUrl(baseUrl_ + "/api/skills"));
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     auto *reply = network_.post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const bool ok = reply->error() == QNetworkReply::NoError;
-        emit skillSaved(ok, ok ? "Skill saved." : reply->errorString());
+        emit skillSaved(ok, ok ? "Skill saved." : reply->errorString() + "\n" + QString::fromUtf8(reply->readAll()));
         reply->deleteLater();
     });
 }

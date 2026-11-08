@@ -58,7 +58,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
           if (-not (Test-Path installer-output/DoctorAI-Setup.exe)) { throw "Installer output missing" }
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: DoctorAI-Windows-Installer
           path: installer-output/DoctorAI-Setup.exe

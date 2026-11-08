@@ -15,8 +15,12 @@ void ApiClient::checkHealth() {
     auto *reply = network_.get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const auto body = reply->readAll();
-        const bool ok = reply->error() == QNetworkReply::NoError;
-        emit healthResult(ok, ok ? QString::fromUtf8(body) : reply->errorString());
+        const auto health = QJsonDocument::fromJson(body).object();
+        const bool ok = reply->error() == QNetworkReply::NoError && health.value("ok").toBool(false);
+        const QString message = reply->error() == QNetworkReply::NoError
+            ? (ok ? "Local AI services are ready." : health.value("error").toString("Ollama is not ready or no local model is installed."))
+            : reply->errorString();
+        emit healthResult(ok, message);
         reply->deleteLater();
     });
 }

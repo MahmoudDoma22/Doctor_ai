@@ -31,7 +31,7 @@ impl DoctorApp{
  fn send_prompt(&mut self){
   if self.prompt.trim().is_empty()||self.busy{return;}let prompt=std::mem::take(&mut self.prompt);
   self.answer.clear();self.busy=true;self.stop.store(false,Ordering::Relaxed);self.status="جاري الاتصال بالموديل المحلي...".into();
-  let stop=self.stop.clone();let(tx,rx)=std::sync::mpsc::channel();self.chat_rx=Some(rx);
+  let stop=self.stop.clone();let(tx,rx)=std::sync::mpsc::channel();let tx_error=tx.clone();self.chat_rx=Some(rx);
   std::thread::spawn(move||{
    let rt=tokio::runtime::Builder::new_multi_thread().enable_all().build();
    let result=match rt{Ok(rt)=>rt.block_on(async move{
@@ -46,7 +46,7 @@ impl DoctorApp{
      }
     }Ok::<(),String>(())
    }),Err(e)=>Err(format!("تهيئة Tokio: {e}"))};
-   if let Err(e)=result{let _=tx.send(format!("\n[خطأ] {e}"));}
+   if let Err(e)=result{let _=tx_error.send(format!("\n[خطأ] {e}"));}
   });
  }
  fn poll(&mut self){

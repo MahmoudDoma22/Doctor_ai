@@ -2,6 +2,7 @@
 #include <QObject>
 #include <QNetworkAccessManager>
 #include <QStringList>
+
 class ApiClient : public QObject {
     Q_OBJECT
 public:
@@ -9,10 +10,14 @@ public:
     void checkHealth();
     void fetchModels();
     void sendMessage(const QString &message, const QString &model);
+    void fetchSettings();
+    void saveOllamaUrl(const QString &url);
 signals:
     void healthChanged(bool ok, const QString &message);
     void modelsReceived(const QStringList &models, const QString &active);
     void answerReceived(const QString &answer);
+    void settingsReceived(const QString &ollamaUrl);
+    void settingsSaved(bool ok, const QString &message);
     void failed(const QString &message);
 private:
     QNetworkAccessManager network_;

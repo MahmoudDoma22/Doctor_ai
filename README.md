@@ -1,34 +1,35 @@
-# Doctor AI — local-first desktop application
+# Doctor AI 2 — Rust-first desktop
 
-Windows-first desktop app with a bundled Java backend and bundled native Rust mistral.rs inference engine. Ollama is not required or used.
+Doctor AI is being rebuilt as a native Rust Windows desktop application.
 
-## Offline modules
-- Available: Gemma 4 E2B / E4B local chat.
-- Optional download: Gemma 4 image-understanding projector.
-- Catalog only in this release: Whisper.cpp speech recognition, Piper text-to-speech, Stable Diffusion / ComfyUI image generation, Wan 2.x / ComfyUI video generation, and offline audio generation. These are not falsely presented as installed.
+## Architecture
+- Native desktop UI: Rust + egui/eframe.
+- Local inference runtime: mistral.rs (Rust).
+- Local model storage: %USERPROFILE%\.doctor-ai\models.
+- Model downloads: streamed HTTP with partial-file retention and HTTP Range resume when supported.
+- No Java, Qt, Python, PowerShell installer scripts, or Ollama dependency in the new application path.
 
-## Hardware guidance
-- Desktop only: Windows 10/11 x64, 4 GB RAM, 3 GB free disk.
-- Offline AI minimum: 8 GB RAM for Gemma 4 E2B.
-- 8–15 GB RAM: Gemma 4 E2B Q4_0.
-- 16 GB RAM or more: Gemma 4 E4B Q4_0.
-- GPU is optional; GPU acceleration is not included in this CPU-engine release.
+## User experience
+- First-run hardware summary and model recommendation.
+- Detects whether a selected model already exists.
+- Model library with source links, download progress, and cancellation.
+- Chat screen with streaming token display and a stop control beside Send.
+- Notifications/status area and free image/video tool links.
+- Inno Setup installer with a selectable installation directory and branded executable/installer icon.
 
-The installer checks RAM and disk before downloading. Bundled aria2 supports up to eight connections, retry, and resume.
+## Model selection
+- Gemma 4 E2B Q4_K_M: lighter local chat, 8 GB RAM class.
+- Gemma 4 E4B Q4_K_M: higher memory requirement, 16 GB RAM class.
+Model repository/file availability and exact memory needs must be verified on the target device. The model pages are the authoritative source for weights and licenses.
 
-## Developer build
-Requires Qt 6.6+, CMake 3.24+, MSVC 2022, JDK 21 and Maven 3.9+.
+## Free creative tools
+ComfyUI, Krita, Blender, Shotcut, Kdenlive, and Wan are linked from their official project pages. They are optional external applications, not bundled.
+
+## Build
+Windows x64, Rust stable/MSVC, and Inno Setup 6:
 ```powershell
-cmake -S . -B build -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-mvn -f backend/pom.xml test package
+cargo build --manifest-path rust-app/Cargo.toml --release
 ```
 
-## Runtime
-- mistral.rs serves the OpenAI-compatible API only on 127.0.0.1:8080.
-- Doctor AI backend listens only on 127.0.0.1:8787.
-- Model files are stored in %USERPROFILE%\.doctor-ai\models.
-- No Ollama, Python, Docker or separate Java install is required by the packaged app.
-
-## Safety
-Medical responses are decision support only and require clinician verification. This build performs local inference only.
+## Important
+This is a rebuild foundation. GPU acceleration, robust model metadata discovery, complete conversation history, health/readiness checks, structured logs, and automated UI/inference tests remain gated on successful CI and runtime verification. Never treat an untested model download or engine startup as production-ready.

@@ -1,4 +1,4 @@
-name: Doctor AI clean Windows build
+name: Doctor AI Rust Windows build
 on:
   push:
     branches: ["rebuild/**"]
@@ -6,94 +6,61 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: doctor-ai-clean-${{ github.ref }}
+  group: doctor-ai-rust-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   build:
     runs-on: windows-2022
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
-      - name: Set up Java 21
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-      - name: Set up Qt 6
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.8.3"
-          host: windows
-          target: desktop
-          arch: win64_msvc2022_64
-      - name: Install Rust toolchain
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-      - name: Build native Rust inference engine (mistral.rs)
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Enable long paths for Rust dependency tree
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force | Out-Null
+      - name: Build native Rust desktop
+        run: cargo build --manifest-path rust-app/Cargo.toml --release --target x86_64-pc-windows-msvc
+      - name: Test Rust desktop
+        run: cargo test --manifest-path rust-app/Cargo.toml --target x86_64-pc-windows-msvc
+      - name: Build Rust inference engine
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           git clone --depth 1 --branch v0.9.5 https://github.com/EricLBuehler/mistral.rs.git external/mistral.rs
-          cargo build --manifest-path external/mistral.rs/Cargo.toml --release --locked -p mistralrs-cli
-          if ($LASTEXITCODE -ne 0) { throw "mistral.rs Rust engine build failed" }
-          $engine = "external/mistral.rs/target/release/mistralrs.exe"
-          if (-not (Test-Path $engine)) { throw "mistralrs.exe was not produced" }
+          cargo build --manifest-path external/mistral.rs/Cargo.toml --release --locked -p mistralrs-cli --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "mistral.rs engine build failed" }
+          $engine = "external/mistral.rs/target/x86_64-pc-windows-msvc/release/mistralrs.exe"
+          if (-not (Test-Path $engine)) { throw "mistralrs.exe was not produced at $engine" }
+      - name: Stage Rust application and icon
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force package/runtime/mistralrs | Out-Null
-          Copy-Item $engine package/runtime/mistralrs/mistralrs.exe
-          if (-not (Test-Path package/runtime/mistralrs/mistralrs.exe)) { throw "Bundled Rust inference engine is missing" }
-      - name: Fetch and verify aria2 downloader
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          Invoke-WebRequest "https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip" -OutFile aria2.zip
-          $hash = (Get-FileHash aria2.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne "67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288") { throw "aria2 checksum verification failed" }
-          Expand-Archive aria2.zip aria2-extracted -Force
-          $aria = Get-ChildItem aria2-extracted -Filter aria2c.exe -Recurse | Select-Object -First 1
-          if (-not $aria) { throw "aria2c.exe missing from verified archive" }
-          New-Item -ItemType Directory -Force package/download | Out-Null
-          Copy-Item $aria.FullName package/download/aria2c.exe
-      - name: Download Microsoft Visual C++ runtime
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force package/prerequisites | Out-Null
-          Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile package/prerequisites/vc_redist.x64.exe
-          if ((Get-Item package/prerequisites/vc_redist.x64.exe).Length -lt 5MB) { throw "Visual C++ runtime download incomplete" }
-      - name: Configure desktop
-        shell: pwsh
-        run: cmake -S . -B build -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DCMAKE_BUILD_TYPE=Release
-      - name: Build desktop
-        run: cmake --build build --config Release
-      - name: Test backend
-        run: mvn -f backend/pom.xml test package
-      - name: Package application
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $exe = Get-ChildItem build -Filter DoctorAI.exe -Recurse | Select-Object -First 1
-          if (-not $exe) { throw "Desktop executable not found" }
-          New-Item -ItemType Directory -Force package/desktop,package/backend,package/runtime/java | Out-Null
-          Copy-Item "$($exe.DirectoryName)/*" package/desktop -Recurse -Force
-          windeployqt --release (Resolve-Path package/desktop/DoctorAI.exe)
-          $jar = Get-ChildItem backend/target -Filter *.jar | Where-Object { $_.Name -notlike "original-*" } | Select-Object -First 1
-          if (-not $jar) { throw "Spring Boot JAR not found" }
-          Copy-Item $jar.FullName package/backend/doctor-ai-backend.jar
-          & "$env:JAVA_HOME/bin/jlink.exe" --add-modules java.base,java.logging,java.naming,java.desktop,java.management,java.instrument,java.security.jgss,java.sql,jdk.crypto.ec,jdk.management --strip-debug --no-man-pages --no-header-files --compress=2 --output package/runtime/java
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path package/runtime/java/bin/java.exe)) { throw "Bundled Java runtime creation failed" }
-          if (-not (Test-Path package/runtime/mistralrs/mistralrs.exe)) { throw "Bundled Rust inference runtime missing" }
-          if (-not (Test-Path package/download/aria2c.exe)) { throw "Bundled aria2 downloader missing" }
-          if (-not (Test-Path package/prerequisites/vc_redist.x64.exe)) { throw "Visual C++ runtime missing" }
-          Copy-Item installer/Start-DoctorAI.ps1 package/Start-DoctorAI.ps1
-      - name: Build installer
+          Copy-Item rust-app/target/x86_64-pc-windows-msvc/release/doctor-ai.exe package/DoctorAI.exe
+          Copy-Item external/mistral.rs/target/x86_64-pc-windows-msvc/release/mistralrs.exe package/runtime/mistralrs/mistralrs.exe
+          $icon = Get-ChildItem rust-app/target -Filter doctor-ai.ico -Recurse | Select-Object -First 1
+          if (-not $icon) { throw "Generated executable icon not found" }
+          Copy-Item $icon.FullName package/DoctorAI.ico
+          if ((Get-Item package/DoctorAI.exe).Length -lt 1MB) { throw "DoctorAI.exe is unexpectedly small" }
+          if ((Get-Item package/runtime/mistralrs/mistralrs.exe).Length -lt 1MB) { throw "mistralrs.exe is unexpectedly small" }
+      - name: Install Inno Setup
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y
-          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler missing" }
-          & $iscc installer/DoctorAI.iss
+          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) { throw "Inno Setup compiler missing" }
+      - name: Build selectable Windows installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/DoctorAI.iss
           if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
           if (-not (Test-Path installer-output/DoctorAI-Setup.exe)) { throw "Installer output missing" }
-      - name: Upload installer
+      - name: Upload Windows installer
         uses: actions/upload-artifact@v6
         with:
           name: DoctorAI-Windows-Installer
